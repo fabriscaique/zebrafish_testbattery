@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive PC1-PC3 view of the canonical 14-endpoint BT1 zebrafish PCA.">
+  <title>Interactive BT1 PCA | PC1-PC3</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/plotly-3.1.0.min.js"></script>
+</head><body>
+<header><p class="eyebrow">Exploratory manuscript companion</p><h1>Interactive three-dimensional BT1 PCA</h1><p class="lede">PC1-PC3 view of the same canonical 14-endpoint PCA used for the manuscript's two-dimensional PC1-PC2 biplot.</p></header>
+<main>
+  <section class="notice"><h2>Interpretive scope</h2><p>This visualization is descriptive. It was not used to test ethanol or measurement-context effects, and apparent group separation is not inferential evidence. The displayed components explain <strong>50.8%</strong> of total variance after rounding.</p></section>
+  <section class="controls" aria-label="Plot controls">
+    <fieldset><legend>Display</legend><label><input id="show-scores" type="checkbox" checked> Fish scores</label><label><input id="show-loadings" type="checkbox" checked> Loading vectors</label><button id="reset-view" type="button">Reset camera</button></fieldset>
+    <fieldset><legend>Ethanol concentration</legend><label><input class="treatment-filter" type="checkbox" value="0.0" checked> Control</label><label><input class="treatment-filter" type="checkbox" value="0.5" checked> 0.5%</label><label><input class="treatment-filter" type="checkbox" value="1.0" checked> 1%</label></fieldset>
+    <fieldset><legend>Exposure duration</legend><label><input class="exposure-filter" type="checkbox" value="1" checked> 1 h</label><label><input class="exposure-filter" type="checkbox" value="24" checked> 24 h</label><label><input class="exposure-filter" type="checkbox" value="96" checked> 96 h</label></fieldset>
+    <fieldset><legend>Loading domains</legend><label><input class="domain-filter" type="checkbox" value="LDT" checked> LDT</label><label><input class="domain-filter" type="checkbox" value="NTT" checked> NTT</label><label><input class="domain-filter" type="checkbox" value="RN" checked> Resistance</label><label><input class="domain-filter" type="checkbox" value="Phys." checked> Condition</label></fieldset>
+  </section>
+  <section class="plot-panel"><h2>PC1-PC2-PC3 score and loading space</h2><p id="plot-status" role="status">Loading canonical PCA data...</p><div id="pca-plot" aria-label="Interactive three-dimensional principal component plot"></div></section>
+  <section><h2>Canonical specification</h2><dl><div><dt>Dataset</dt><dd>BT1 complete cases, n = 135 of 136</dd></div><div><dt>Variables</dt><dd>14 registered endpoints; blood glucose excluded</dd></div><div><dt>Preprocessing</dt><dd>Centered and scaled; no imputation</dd></div><div><dt>Variance</dt><dd>PC1 23.3%; PC2 17.2%; PC3 10.3%</dd></div></dl><p>Blood glucose remains represented in its endpoint model and pairwise-complete correlation heatmap. Component signs are arbitrary. Strongly correlated loading vectors are not independent effects.</p></section>
+  <section><h2>Data and provenance</h2><ul><li><a href="data/pca_scores.csv" download>Canonical PCA scores</a></li><li><a href="data/pca_loadings.csv" download>Canonical PCA loadings</a></li><li><a href="data/pca_variance_explained.csv" download>Variance spectrum</a></li><li><a href="data/pca_model_provenance.json">Model provenance</a></li><li><a href="vendor/PLOTLY_LICENSE.txt">Plotly.js license</a></li></ul></section>
+</main><footer><p>Archive DOI and release identifier will be added when the manuscript version is locked.</p></footer>
+<script src="app.js" type="module"></script></body></html>
