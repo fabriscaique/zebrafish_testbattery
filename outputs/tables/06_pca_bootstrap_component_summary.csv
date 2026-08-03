@@ -1,0 +1,6 @@
+component,top_loading_stability
+PC1,dist_total (98.4%); mov_total (1.6%)
+PC2,time_bright (75.2%); mtpc (16.2%); first_choice_binary (2.6%)
+PC3,latency (31.6%); Kc (22%); num_changes (17.4%)
+PC4,Kc (26.2%); blood_sugar (21.2%); resistance_index (16.8%)
+PC5,blood_sugar (31.4%); latency (16.8%); resistance_index (14.6%)

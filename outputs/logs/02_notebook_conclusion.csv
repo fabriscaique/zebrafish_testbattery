@@ -1,0 +1,7 @@
+"conclusion","downstream_use"
+"Audited datasets were loaded and standardized for registry evaluation.","Notebook 03 model inputs"
+"Endpoint roles were resolved without primary/secondary hierarchy.","Notebook 03, 04, 05 endpoint selection"
+"Availability, descriptive statistics, and model-readiness diagnostics were exported.","Notebook 03 model-family decisions and Notebook 06 robustness checks"
+"The PCA endpoint set was checked against BT1 availability.","Notebook 05 PCA preparation"
+"Condition factor aliases were recorded for later formula/range audit.","Notebook 06 condition-factor audit and Notebook 05 PCA decision"
+"No ethanol-effect, battery-effect, PCA, or manuscript-level claims were made in this notebook.","Claim discipline for reporting notebooks"

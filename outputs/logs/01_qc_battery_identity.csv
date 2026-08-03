@@ -1,0 +1,4 @@
+"battery_file","n_rows","battery_values","has_ldt_presence_col","has_ntt_presence_col","has_endurance_presence_col","ldt_present_count","ntt_present_count","endurance_present_count","expected_context"
+"BT1",136,"BT1",TRUE,TRUE,TRUE,136,136,136,"full sequential battery"
+"BT2",139,"BT2",TRUE,TRUE,TRUE,139,139,0,"alternative or isolated LDT/NTT context"
+"BT3",135,"BT3",TRUE,TRUE,TRUE,0,0,135,"isolated endurance context"

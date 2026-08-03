@@ -1,0 +1,14 @@
+component,top_variables,top_domains,suggested_label
+PC1,"dist_total, mov_total, vel_mean",NTT locomotion | NTT locomotion | NTT locomotion,NTT locomotion
+PC10,"mov_total, resistance_index, Kc",NTT locomotion | Endurance | Biometry/condition,mixed: NTT locomotion + Endurance + Biometry/condition
+PC11,"num_changes, mov_total, mtpc",LDT transition behavior | NTT locomotion | LDT transition behavior,mixed: LDT transition behavior + NTT locomotion
+PC12,"time_bright, mtpc, num_changes",LDT phototaxis | LDT transition behavior | LDT transition behavior,mixed: LDT phototaxis + LDT transition behavior
+PC13,"dist_total, vel_mean, mov_total",NTT locomotion | NTT locomotion | NTT locomotion,NTT locomotion
+PC2,"time_bright, mtpc, first_choice_binary",LDT phototaxis | LDT transition behavior | LDT first choice,mixed: LDT phototaxis + LDT transition behavior + LDT first choice
+PC3,"latency, num_changes, mtpc",LDT decision latency | LDT transition behavior | LDT transition behavior,mixed: LDT decision latency + LDT transition behavior
+PC4,"Kc, blood_sugar, mtpc",Biometry/condition | Physiology | LDT transition behavior,mixed: Biometry/condition + Physiology + LDT transition behavior
+PC5,"resistance_index, attempts, time_bright",Endurance | Endurance | LDT phototaxis,mixed: Endurance + LDT phototaxis
+PC6,"blood_sugar, latency, stratum_pref",Physiology | LDT decision latency | NTT spatial position,mixed: Physiology + LDT decision latency + NTT spatial position
+PC7,"first_choice_binary, stratum_pref, latency",LDT first choice | NTT spatial position | LDT decision latency,mixed: LDT first choice + NTT spatial position + LDT decision latency
+PC8,"attempts, resistance_index, num_changes",Endurance | Endurance | LDT transition behavior,mixed: Endurance + LDT transition behavior
+PC9,"stratum_pref, Kc, blood_sugar",NTT spatial position | Biometry/condition | Physiology,mixed: NTT spatial position + Biometry/condition + Physiology

@@ -1,0 +1,8 @@
+"item","definition"
+"model_target","endpoint value ~ treatment * exposure"
+"analysis_dataset","BT1 audited full-battery dataset"
+"treatment_main_effect","Association between ethanol concentration and the endpoint within the factorial model."
+"exposure_main_effect","Association between exposure duration and the endpoint within the factorial model."
+"interaction_effect","Whether ethanol concentration effects differ by exposure duration."
+"battery_rule","Battery-context comparisons are not run in Notebook 03."
+"pca_rule","PCA is not run in Notebook 03 and does not replace endpoint-level models."

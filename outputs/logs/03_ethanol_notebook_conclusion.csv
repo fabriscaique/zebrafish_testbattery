@@ -1,0 +1,8 @@
+"item","conclusion"
+"analysis_scope","Endpoint-level ethanol models were run for model-candidate endpoints available in BT1."
+"dataset","BT1 audited full-battery dataset."
+"model_target","endpoint value ~ treatment * exposure."
+"endpoint_selection","Endpoint selection followed the Notebook 02 endpoint registry and model-readiness table."
+"battery_context","Battery-context effects were not tested here and remain assigned to Notebook 04."
+"pca_context","PCA was not run here and remains assigned to Notebook 05."
+"next_notebook","Notebook 04 should test battery-context effects for comparable endpoint/cell combinations."

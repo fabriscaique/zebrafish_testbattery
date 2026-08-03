@@ -1,0 +1,170 @@
+endpoint,component,loading,abs_loading,domain,pca_role
+dist_total,PC1,0.539595179393793,0.539595179393793,NTT locomotion,fixed_full_battery_endpoint
+mov_total,PC1,0.4642135558398419,0.4642135558398419,NTT locomotion,fixed_full_battery_endpoint
+vel_mean,PC1,0.4592574303796094,0.4592574303796094,NTT locomotion,fixed_full_battery_endpoint
+stratum_pref,PC1,0.3408855650556667,0.3408855650556667,NTT spatial position,fixed_full_battery_endpoint
+num_changes,PC1,0.31136244372497757,0.31136244372497757,LDT transition behavior,fixed_full_battery_endpoint
+resistance_index,PC1,0.13765520062143427,0.13765520062143427,Endurance,fixed_full_battery_endpoint
+blood_sugar,PC1,0.12005131624917051,0.12005131624917051,Physiology,conditional_supportive_physiology
+mtpc,PC1,-0.10961534701257164,0.10961534701257164,LDT transition behavior,fixed_full_battery_endpoint
+attempts,PC1,-0.096385995334526825,0.096385995334526825,Endurance,fixed_full_battery_endpoint
+latency,PC1,-0.08414187755580378,0.08414187755580378,LDT decision latency,fixed_full_battery_endpoint
+condition_factor,PC1,-0.06496854815892926,0.06496854815892926,Biometry / condition,conditional_condition_factor
+first_choice_binary,PC1,0.05285650618925001,0.05285650618925001,LDT first choice,fixed_full_battery_endpoint
+time_bright,PC1,0.022677180629201515,0.022677180629201515,LDT phototaxis,fixed_full_battery_endpoint
+mov_total,PC10,0.6153695386567958,0.6153695386567958,NTT locomotion,fixed_full_battery_endpoint
+resistance_index,PC10,-0.37762090279796734,0.37762090279796734,Endurance,fixed_full_battery_endpoint
+condition_factor,PC10,0.3656342983191327,0.3656342983191327,Biometry / condition,conditional_condition_factor
+vel_mean,PC10,-0.3621739456220077,0.3621739456220077,NTT locomotion,fixed_full_battery_endpoint
+num_changes,PC10,-0.3011080201309711,0.3011080201309711,LDT transition behavior,fixed_full_battery_endpoint
+attempts,PC10,-0.23634847768945233,0.23634847768945233,Endurance,fixed_full_battery_endpoint
+time_bright,PC10,-0.14456171743545793,0.14456171743545793,LDT phototaxis,fixed_full_battery_endpoint
+mtpc,PC10,0.14008508457179156,0.14008508457179156,LDT transition behavior,fixed_full_battery_endpoint
+first_choice_binary,PC10,0.11608633788118872,0.11608633788118872,LDT first choice,fixed_full_battery_endpoint
+stratum_pref,PC10,0.08983630000006851,0.08983630000006851,NTT spatial position,fixed_full_battery_endpoint
+latency,PC10,-0.0600339130479489,0.0600339130479489,LDT decision latency,fixed_full_battery_endpoint
+blood_sugar,PC10,0.04078576907307568,0.04078576907307568,Physiology,conditional_supportive_physiology
+dist_total,PC10,-0.0012905784921796062,0.0012905784921796062,NTT locomotion,fixed_full_battery_endpoint
+num_changes,PC11,-0.48951886616740636,0.48951886616740636,LDT transition behavior,fixed_full_battery_endpoint
+mov_total,PC11,-0.3841882330020301,0.3841882330020301,NTT locomotion,fixed_full_battery_endpoint
+mtpc,PC11,-0.35900637149197073,0.35900637149197073,LDT transition behavior,fixed_full_battery_endpoint
+attempts,PC11,-0.34315047243956054,0.34315047243956054,Endurance,fixed_full_battery_endpoint
+vel_mean,PC11,0.30858039724134684,0.30858039724134684,NTT locomotion,fixed_full_battery_endpoint
+latency,PC11,-0.30627794435067224,0.30627794435067224,LDT decision latency,fixed_full_battery_endpoint
+resistance_index,PC11,-0.28653962334001637,0.28653962334001637,Endurance,fixed_full_battery_endpoint
+stratum_pref,PC11,0.20205521767593787,0.20205521767593787,NTT spatial position,fixed_full_battery_endpoint
+first_choice_binary,PC11,0.19667881319550015,0.19667881319550015,LDT first choice,fixed_full_battery_endpoint
+blood_sugar,PC11,0.09656724093715643,0.09656724093715643,Physiology,conditional_supportive_physiology
+dist_total,PC11,0.07243617757843422,0.07243617757843422,NTT locomotion,fixed_full_battery_endpoint
+time_bright,PC11,-0.026620947301184722,0.026620947301184722,LDT phototaxis,fixed_full_battery_endpoint
+condition_factor,PC11,-0.014494483461921764,0.014494483461921764,Biometry / condition,conditional_condition_factor
+time_bright,PC12,0.6563779679299409,0.6563779679299409,LDT phototaxis,fixed_full_battery_endpoint
+mtpc,PC12,-0.4793773514961284,0.4793773514961284,LDT transition behavior,fixed_full_battery_endpoint
+num_changes,PC12,-0.3094438435003146,0.3094438435003146,LDT transition behavior,fixed_full_battery_endpoint
+mov_total,PC12,0.2706219243896567,0.2706219243896567,NTT locomotion,fixed_full_battery_endpoint
+first_choice_binary,PC12,-0.2626278783627851,0.2626278783627851,LDT first choice,fixed_full_battery_endpoint
+stratum_pref,PC12,-0.19636924526557875,0.19636924526557875,NTT spatial position,fixed_full_battery_endpoint
+latency,PC12,0.16102094850589427,0.16102094850589427,LDT decision latency,fixed_full_battery_endpoint
+blood_sugar,PC12,-0.13563942127593603,0.13563942127593603,Physiology,conditional_supportive_physiology
+resistance_index,PC12,0.12953187148988687,0.12953187148988687,Endurance,fixed_full_battery_endpoint
+vel_mean,PC12,-0.02604870623349738,0.02604870623349738,NTT locomotion,fixed_full_battery_endpoint
+condition_factor,PC12,0.022328574553947142,0.022328574553947142,Biometry / condition,conditional_condition_factor
+dist_total,PC12,0.01992273112336794,0.01992273112336794,NTT locomotion,fixed_full_battery_endpoint
+attempts,PC12,0.01268846411727108,0.01268846411727108,Endurance,fixed_full_battery_endpoint
+dist_total,PC13,0.7591805545022956,0.7591805545022956,NTT locomotion,fixed_full_battery_endpoint
+vel_mean,PC13,-0.5737164516352184,0.5737164516352184,NTT locomotion,fixed_full_battery_endpoint
+mov_total,PC13,-0.2953620979173892,0.2953620979173892,NTT locomotion,fixed_full_battery_endpoint
+condition_factor,PC13,-0.060398034713642704,0.060398034713642704,Biometry / condition,conditional_condition_factor
+time_bright,PC13,0.04668908809954185,0.04668908809954185,LDT phototaxis,fixed_full_battery_endpoint
+num_changes,PC13,-0.023724804609915495,0.023724804609915495,LDT transition behavior,fixed_full_battery_endpoint
+blood_sugar,PC13,-0.014930796296116884,0.014930796296116884,Physiology,conditional_supportive_physiology
+first_choice_binary,PC13,-0.014617830190403958,0.014617830190403958,LDT first choice,fixed_full_battery_endpoint
+mtpc,PC13,-0.012908704756526692,0.012908704756526692,LDT transition behavior,fixed_full_battery_endpoint
+resistance_index,PC13,-0.009952404474411612,0.009952404474411612,Endurance,fixed_full_battery_endpoint
+stratum_pref,PC13,-0.008787654549026691,0.008787654549026691,NTT spatial position,fixed_full_battery_endpoint
+attempts,PC13,0.008375626673052979,0.008375626673052979,Endurance,fixed_full_battery_endpoint
+latency,PC13,0.0039014559384391648,0.0039014559384391648,LDT decision latency,fixed_full_battery_endpoint
+time_bright,PC2,-0.561190704523242,0.561190704523242,LDT phototaxis,fixed_full_battery_endpoint
+mtpc,PC2,-0.449895713334435,0.449895713334435,LDT transition behavior,fixed_full_battery_endpoint
+first_choice_binary,PC2,-0.42335514957080134,0.42335514957080134,LDT first choice,fixed_full_battery_endpoint
+attempts,PC2,-0.38091038137313493,0.38091038137313493,Endurance,fixed_full_battery_endpoint
+resistance_index,PC2,0.28662079258955203,0.28662079258955203,Endurance,fixed_full_battery_endpoint
+condition_factor,PC2,0.17879943996764183,0.17879943996764183,Biometry / condition,conditional_condition_factor
+num_changes,PC2,0.11291975113919749,0.11291975113919749,LDT transition behavior,fixed_full_battery_endpoint
+stratum_pref,PC2,-0.10483442634236385,0.10483442634236385,NTT spatial position,fixed_full_battery_endpoint
+vel_mean,PC2,-0.10035528170928515,0.10035528170928515,NTT locomotion,fixed_full_battery_endpoint
+latency,PC2,0.09071099238407869,0.09071099238407869,LDT decision latency,fixed_full_battery_endpoint
+dist_total,PC2,-0.03521774032313619,0.03521774032313619,NTT locomotion,fixed_full_battery_endpoint
+blood_sugar,PC2,-0.030320295213064733,0.030320295213064733,Physiology,conditional_supportive_physiology
+mov_total,PC2,-0.003926462945031111,0.003926462945031111,NTT locomotion,fixed_full_battery_endpoint
+latency,PC3,-0.5391754411594156,0.5391754411594156,LDT decision latency,fixed_full_battery_endpoint
+num_changes,PC3,0.5228179084828899,0.5228179084828899,LDT transition behavior,fixed_full_battery_endpoint
+mtpc,PC3,-0.3159720731837173,0.3159720731837173,LDT transition behavior,fixed_full_battery_endpoint
+blood_sugar,PC3,0.31489533192209024,0.31489533192209024,Physiology,conditional_supportive_physiology
+resistance_index,PC3,-0.2663716124383466,0.2663716124383466,Endurance,fixed_full_battery_endpoint
+stratum_pref,PC3,-0.20707737969704434,0.20707737969704434,NTT spatial position,fixed_full_battery_endpoint
+time_bright,PC3,0.20297460913472792,0.20297460913472792,LDT phototaxis,fixed_full_battery_endpoint
+vel_mean,PC3,-0.1834090250483193,0.1834090250483193,NTT locomotion,fixed_full_battery_endpoint
+condition_factor,PC3,0.16490737470091926,0.16490737470091926,Biometry / condition,conditional_condition_factor
+dist_total,PC3,-0.1304092982920593,0.1304092982920593,NTT locomotion,fixed_full_battery_endpoint
+attempts,PC3,0.061526560506200575,0.061526560506200575,Endurance,fixed_full_battery_endpoint
+mov_total,PC3,-0.015305613806604529,0.015305613806604529,NTT locomotion,fixed_full_battery_endpoint
+first_choice_binary,PC3,0.007785295788867671,0.007785295788867671,LDT first choice,fixed_full_battery_endpoint
+condition_factor,PC4,0.7113922346721425,0.7113922346721425,Biometry / condition,conditional_condition_factor
+blood_sugar,PC4,0.3570262047189753,0.3570262047189753,Physiology,conditional_supportive_physiology
+mtpc,PC4,0.2930216976630527,0.2930216976630527,LDT transition behavior,fixed_full_battery_endpoint
+vel_mean,PC4,0.2594555014079815,0.2594555014079815,NTT locomotion,fixed_full_battery_endpoint
+stratum_pref,PC4,-0.2332809800136112,0.2332809800136112,NTT spatial position,fixed_full_battery_endpoint
+resistance_index,PC4,0.2096255424378246,0.2096255424378246,Endurance,fixed_full_battery_endpoint
+mov_total,PC4,-0.2024207109843241,0.2024207109843241,NTT locomotion,fixed_full_battery_endpoint
+dist_total,PC4,0.17251972913480415,0.17251972913480415,NTT locomotion,fixed_full_battery_endpoint
+time_bright,PC4,0.14804300389048033,0.14804300389048033,LDT phototaxis,fixed_full_battery_endpoint
+num_changes,PC4,-0.09348211219990543,0.09348211219990543,LDT transition behavior,fixed_full_battery_endpoint
+first_choice_binary,PC4,-0.07789299626882945,0.07789299626882945,LDT first choice,fixed_full_battery_endpoint
+latency,PC4,0.07531672457498657,0.07531672457498657,LDT decision latency,fixed_full_battery_endpoint
+attempts,PC4,-0.0421764869875755,0.0421764869875755,Endurance,fixed_full_battery_endpoint
+resistance_index,PC5,-0.5680253301181051,0.5680253301181051,Endurance,fixed_full_battery_endpoint
+attempts,PC5,0.5472250265565681,0.5472250265565681,Endurance,fixed_full_battery_endpoint
+time_bright,PC5,-0.2732368055902231,0.2732368055902231,LDT phototaxis,fixed_full_battery_endpoint
+latency,PC5,0.25444231916727517,0.25444231916727517,LDT decision latency,fixed_full_battery_endpoint
+vel_mean,PC5,0.25349248810518427,0.25349248810518427,NTT locomotion,fixed_full_battery_endpoint
+first_choice_binary,PC5,-0.24865331892594666,0.24865331892594666,LDT first choice,fixed_full_battery_endpoint
+mtpc,PC5,-0.19825141424449821,0.19825141424449821,LDT transition behavior,fixed_full_battery_endpoint
+dist_total,PC5,0.1922012075954657,0.1922012075954657,NTT locomotion,fixed_full_battery_endpoint
+stratum_pref,PC5,-0.1439036392352225,0.1439036392352225,NTT spatial position,fixed_full_battery_endpoint
+condition_factor,PC5,0.11326771741320923,0.11326771741320923,Biometry / condition,conditional_condition_factor
+blood_sugar,PC5,-0.03775764326270291,0.03775764326270291,Physiology,conditional_supportive_physiology
+num_changes,PC5,-0.03445314056901559,0.03445314056901559,LDT transition behavior,fixed_full_battery_endpoint
+mov_total,PC5,0.003227264988026328,0.003227264988026328,NTT locomotion,fixed_full_battery_endpoint
+blood_sugar,PC6,0.7443728926420868,0.7443728926420868,Physiology,conditional_supportive_physiology
+latency,PC6,0.5245193746405267,0.5245193746405267,LDT decision latency,fixed_full_battery_endpoint
+stratum_pref,PC6,0.2308807439927818,0.2308807439927818,NTT spatial position,fixed_full_battery_endpoint
+condition_factor,PC6,-0.2065473982005899,0.2065473982005899,Biometry / condition,conditional_condition_factor
+vel_mean,PC6,-0.15239528731716703,0.15239528731716703,NTT locomotion,fixed_full_battery_endpoint
+dist_total,PC6,-0.13342498809596143,0.13342498809596143,NTT locomotion,fixed_full_battery_endpoint
+mtpc,PC6,-0.12535445323817307,0.12535445323817307,LDT transition behavior,fixed_full_battery_endpoint
+resistance_index,PC6,-0.08914406405647445,0.08914406405647445,Endurance,fixed_full_battery_endpoint
+attempts,PC6,-0.06745750889728745,0.06745750889728745,Endurance,fixed_full_battery_endpoint
+time_bright,PC6,0.05970260138988211,0.05970260138988211,LDT phototaxis,fixed_full_battery_endpoint
+mov_total,PC6,-0.029400277393931824,0.029400277393931824,NTT locomotion,fixed_full_battery_endpoint
+num_changes,PC6,0.02482124651443418,0.02482124651443418,LDT transition behavior,fixed_full_battery_endpoint
+first_choice_binary,PC6,0.023202064983852164,0.023202064983852164,LDT first choice,fixed_full_battery_endpoint
+first_choice_binary,PC7,0.7432269961177312,0.7432269961177312,LDT first choice,fixed_full_battery_endpoint
+stratum_pref,PC7,-0.4539749190155351,0.4539749190155351,NTT spatial position,fixed_full_battery_endpoint
+latency,PC7,0.3291472476064695,0.3291472476064695,LDT decision latency,fixed_full_battery_endpoint
+mtpc,PC7,-0.25859300414877445,0.25859300414877445,LDT transition behavior,fixed_full_battery_endpoint
+num_changes,PC7,0.14026323892319728,0.14026323892319728,LDT transition behavior,fixed_full_battery_endpoint
+blood_sugar,PC7,-0.1199090817273624,0.1199090817273624,Physiology,conditional_supportive_physiology
+attempts,PC7,-0.10392848589001259,0.10392848589001259,Endurance,fixed_full_battery_endpoint
+time_bright,PC7,-0.08894032571671856,0.08894032571671856,LDT phototaxis,fixed_full_battery_endpoint
+dist_total,PC7,0.06903667344776485,0.06903667344776485,NTT locomotion,fixed_full_battery_endpoint
+condition_factor,PC7,0.06414023512627132,0.06414023512627132,Biometry / condition,conditional_condition_factor
+vel_mean,PC7,0.04817704584812789,0.04817704584812789,NTT locomotion,fixed_full_battery_endpoint
+mov_total,PC7,0.03999165929077828,0.03999165929077828,NTT locomotion,fixed_full_battery_endpoint
+resistance_index,PC7,0.027354786617140914,0.027354786617140914,Endurance,fixed_full_battery_endpoint
+attempts,PC8,-0.5786860469490542,0.5786860469490542,Endurance,fixed_full_battery_endpoint
+resistance_index,PC8,-0.4594212398213723,0.4594212398213723,Endurance,fixed_full_battery_endpoint
+num_changes,PC8,0.3314745915636826,0.3314745915636826,LDT transition behavior,fixed_full_battery_endpoint
+latency,PC8,0.26851023938261304,0.26851023938261304,LDT decision latency,fixed_full_battery_endpoint
+time_bright,PC8,0.24778444333539204,0.24778444333539204,LDT phototaxis,fixed_full_battery_endpoint
+blood_sugar,PC8,-0.24103142112067003,0.24103142112067003,Physiology,conditional_supportive_physiology
+first_choice_binary,PC8,-0.23210454366524622,0.23210454366524622,LDT first choice,fixed_full_battery_endpoint
+mtpc,PC8,0.23004998278340336,0.23004998278340336,LDT transition behavior,fixed_full_battery_endpoint
+vel_mean,PC8,0.12832749012250338,0.12832749012250338,NTT locomotion,fixed_full_battery_endpoint
+mov_total,PC8,-0.12737223585745233,0.12737223585745233,NTT locomotion,fixed_full_battery_endpoint
+stratum_pref,PC8,-0.0948988726600903,0.0948988726600903,NTT spatial position,fixed_full_battery_endpoint
+condition_factor,PC8,-0.056171041953076574,0.056171041953076574,Biometry / condition,conditional_condition_factor
+dist_total,PC8,0.030659854728254516,0.030659854728254516,NTT locomotion,fixed_full_battery_endpoint
+stratum_pref,PC9,-0.6315516955612613,0.6315516955612613,NTT spatial position,fixed_full_battery_endpoint
+condition_factor,PC9,-0.4793025318211773,0.4793025318211773,Biometry / condition,conditional_condition_factor
+blood_sugar,PC9,0.31692414109092376,0.31692414109092376,Physiology,conditional_supportive_physiology
+num_changes,PC9,-0.22418669615817027,0.22418669615817027,LDT transition behavior,fixed_full_battery_endpoint
+mtpc,PC9,0.21584455620212326,0.21584455620212326,LDT transition behavior,fixed_full_battery_endpoint
+latency,PC9,-0.21132569746126648,0.21132569746126648,LDT decision latency,fixed_full_battery_endpoint
+mov_total,PC9,0.19449647362652694,0.19449647362652694,NTT locomotion,fixed_full_battery_endpoint
+first_choice_binary,PC9,-0.14790978585267187,0.14790978585267187,LDT first choice,fixed_full_battery_endpoint
+time_bright,PC9,-0.1388754064876282,0.1388754064876282,LDT phototaxis,fixed_full_battery_endpoint
+dist_total,PC9,0.13556103987739035,0.13556103987739035,NTT locomotion,fixed_full_battery_endpoint
+attempts,PC9,-0.12854661943588616,0.12854661943588616,Endurance,fixed_full_battery_endpoint
+vel_mean,PC9,0.12475068890273959,0.12475068890273959,NTT locomotion,fixed_full_battery_endpoint
+resistance_index,PC9,-0.0026842539753162923,0.0026842539753162923,Endurance,fixed_full_battery_endpoint

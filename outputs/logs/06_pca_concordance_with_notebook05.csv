@@ -1,0 +1,2 @@
+check,status,details
+pca_loadings_from_notebook_05,missing,No Notebook 05 loading table found. The reconstructed PCA outputs from Notebook 06 are available for comparison after Notebook 05 is rerun.

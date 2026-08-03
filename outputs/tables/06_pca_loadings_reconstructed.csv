@@ -1,0 +1,170 @@
+variable,component,loading,planned_variable,domain,abs_loading
+dist_total,PC1,0.539595179393793,dist_total,NTT locomotion,0.539595179393793
+mov_total,PC1,0.4642135558398419,mov_total,NTT locomotion,0.4642135558398419
+vel_mean,PC1,0.4592574303796094,vel_mean,NTT locomotion,0.4592574303796094
+stratum_pref,PC1,0.3408855650556667,stratum_pref,NTT spatial position,0.3408855650556667
+num_changes,PC1,0.31136244372497757,num_changes,LDT transition behavior,0.31136244372497757
+resistance_index,PC1,0.13765520062143427,resistance_index,Endurance,0.13765520062143427
+blood_sugar,PC1,0.12005131624917051,blood_sugar,Physiology,0.12005131624917051
+mtpc,PC1,-0.10961534701257164,mtpc,LDT transition behavior,0.10961534701257164
+attempts,PC1,-0.096385995334526825,attempts,Endurance,0.096385995334526825
+latency,PC1,-0.08414187755580378,latency,LDT decision latency,0.08414187755580378
+Kc,PC1,-0.06496854815892926,condition_factor,Biometry/condition,0.06496854815892926
+first_choice_binary,PC1,0.05285650618925001,first_choice_binary,LDT first choice,0.05285650618925001
+time_bright,PC1,0.022677180629201515,time_bright,LDT phototaxis,0.022677180629201515
+mov_total,PC10,0.6153695386567958,mov_total,NTT locomotion,0.6153695386567958
+resistance_index,PC10,-0.37762090279796734,resistance_index,Endurance,0.37762090279796734
+Kc,PC10,0.3656342983191327,condition_factor,Biometry/condition,0.3656342983191327
+vel_mean,PC10,-0.3621739456220077,vel_mean,NTT locomotion,0.3621739456220077
+num_changes,PC10,-0.3011080201309711,num_changes,LDT transition behavior,0.3011080201309711
+attempts,PC10,-0.23634847768945233,attempts,Endurance,0.23634847768945233
+time_bright,PC10,-0.14456171743545793,time_bright,LDT phototaxis,0.14456171743545793
+mtpc,PC10,0.14008508457179156,mtpc,LDT transition behavior,0.14008508457179156
+first_choice_binary,PC10,0.11608633788118872,first_choice_binary,LDT first choice,0.11608633788118872
+stratum_pref,PC10,0.08983630000006851,stratum_pref,NTT spatial position,0.08983630000006851
+latency,PC10,-0.0600339130479489,latency,LDT decision latency,0.0600339130479489
+blood_sugar,PC10,0.04078576907307568,blood_sugar,Physiology,0.04078576907307568
+dist_total,PC10,-0.0012905784921796062,dist_total,NTT locomotion,0.0012905784921796062
+num_changes,PC11,-0.48951886616740636,num_changes,LDT transition behavior,0.48951886616740636
+mov_total,PC11,-0.3841882330020301,mov_total,NTT locomotion,0.3841882330020301
+mtpc,PC11,-0.35900637149197073,mtpc,LDT transition behavior,0.35900637149197073
+attempts,PC11,-0.34315047243956054,attempts,Endurance,0.34315047243956054
+vel_mean,PC11,0.30858039724134684,vel_mean,NTT locomotion,0.30858039724134684
+latency,PC11,-0.30627794435067224,latency,LDT decision latency,0.30627794435067224
+resistance_index,PC11,-0.28653962334001637,resistance_index,Endurance,0.28653962334001637
+stratum_pref,PC11,0.20205521767593787,stratum_pref,NTT spatial position,0.20205521767593787
+first_choice_binary,PC11,0.19667881319550015,first_choice_binary,LDT first choice,0.19667881319550015
+blood_sugar,PC11,0.09656724093715643,blood_sugar,Physiology,0.09656724093715643
+dist_total,PC11,0.07243617757843422,dist_total,NTT locomotion,0.07243617757843422
+time_bright,PC11,-0.026620947301184722,time_bright,LDT phototaxis,0.026620947301184722
+Kc,PC11,-0.014494483461921764,condition_factor,Biometry/condition,0.014494483461921764
+time_bright,PC12,0.6563779679299409,time_bright,LDT phototaxis,0.6563779679299409
+mtpc,PC12,-0.4793773514961284,mtpc,LDT transition behavior,0.4793773514961284
+num_changes,PC12,-0.3094438435003146,num_changes,LDT transition behavior,0.3094438435003146
+mov_total,PC12,0.2706219243896567,mov_total,NTT locomotion,0.2706219243896567
+first_choice_binary,PC12,-0.2626278783627851,first_choice_binary,LDT first choice,0.2626278783627851
+stratum_pref,PC12,-0.19636924526557875,stratum_pref,NTT spatial position,0.19636924526557875
+latency,PC12,0.16102094850589427,latency,LDT decision latency,0.16102094850589427
+blood_sugar,PC12,-0.13563942127593603,blood_sugar,Physiology,0.13563942127593603
+resistance_index,PC12,0.12953187148988687,resistance_index,Endurance,0.12953187148988687
+vel_mean,PC12,-0.02604870623349738,vel_mean,NTT locomotion,0.02604870623349738
+Kc,PC12,0.022328574553947142,condition_factor,Biometry/condition,0.022328574553947142
+dist_total,PC12,0.01992273112336794,dist_total,NTT locomotion,0.01992273112336794
+attempts,PC12,0.01268846411727108,attempts,Endurance,0.01268846411727108
+dist_total,PC13,0.7591805545022956,dist_total,NTT locomotion,0.7591805545022956
+vel_mean,PC13,-0.5737164516352184,vel_mean,NTT locomotion,0.5737164516352184
+mov_total,PC13,-0.2953620979173892,mov_total,NTT locomotion,0.2953620979173892
+Kc,PC13,-0.060398034713642704,condition_factor,Biometry/condition,0.060398034713642704
+time_bright,PC13,0.04668908809954185,time_bright,LDT phototaxis,0.04668908809954185
+num_changes,PC13,-0.023724804609915495,num_changes,LDT transition behavior,0.023724804609915495
+blood_sugar,PC13,-0.014930796296116884,blood_sugar,Physiology,0.014930796296116884
+first_choice_binary,PC13,-0.014617830190403958,first_choice_binary,LDT first choice,0.014617830190403958
+mtpc,PC13,-0.012908704756526692,mtpc,LDT transition behavior,0.012908704756526692
+resistance_index,PC13,-0.009952404474411612,resistance_index,Endurance,0.009952404474411612
+stratum_pref,PC13,-0.008787654549026691,stratum_pref,NTT spatial position,0.008787654549026691
+attempts,PC13,0.008375626673052979,attempts,Endurance,0.008375626673052979
+latency,PC13,0.0039014559384391648,latency,LDT decision latency,0.0039014559384391648
+time_bright,PC2,-0.561190704523242,time_bright,LDT phototaxis,0.561190704523242
+mtpc,PC2,-0.449895713334435,mtpc,LDT transition behavior,0.449895713334435
+first_choice_binary,PC2,-0.42335514957080134,first_choice_binary,LDT first choice,0.42335514957080134
+attempts,PC2,-0.38091038137313493,attempts,Endurance,0.38091038137313493
+resistance_index,PC2,0.28662079258955203,resistance_index,Endurance,0.28662079258955203
+Kc,PC2,0.17879943996764183,condition_factor,Biometry/condition,0.17879943996764183
+num_changes,PC2,0.11291975113919749,num_changes,LDT transition behavior,0.11291975113919749
+stratum_pref,PC2,-0.10483442634236385,stratum_pref,NTT spatial position,0.10483442634236385
+vel_mean,PC2,-0.10035528170928515,vel_mean,NTT locomotion,0.10035528170928515
+latency,PC2,0.09071099238407869,latency,LDT decision latency,0.09071099238407869
+dist_total,PC2,-0.03521774032313619,dist_total,NTT locomotion,0.03521774032313619
+blood_sugar,PC2,-0.030320295213064733,blood_sugar,Physiology,0.030320295213064733
+mov_total,PC2,-0.003926462945031111,mov_total,NTT locomotion,0.003926462945031111
+latency,PC3,-0.5391754411594156,latency,LDT decision latency,0.5391754411594156
+num_changes,PC3,0.5228179084828899,num_changes,LDT transition behavior,0.5228179084828899
+mtpc,PC3,-0.3159720731837173,mtpc,LDT transition behavior,0.3159720731837173
+blood_sugar,PC3,0.31489533192209024,blood_sugar,Physiology,0.31489533192209024
+resistance_index,PC3,-0.2663716124383466,resistance_index,Endurance,0.2663716124383466
+stratum_pref,PC3,-0.20707737969704434,stratum_pref,NTT spatial position,0.20707737969704434
+time_bright,PC3,0.20297460913472792,time_bright,LDT phototaxis,0.20297460913472792
+vel_mean,PC3,-0.1834090250483193,vel_mean,NTT locomotion,0.1834090250483193
+Kc,PC3,0.16490737470091926,condition_factor,Biometry/condition,0.16490737470091926
+dist_total,PC3,-0.1304092982920593,dist_total,NTT locomotion,0.1304092982920593
+attempts,PC3,0.061526560506200575,attempts,Endurance,0.061526560506200575
+mov_total,PC3,-0.015305613806604529,mov_total,NTT locomotion,0.015305613806604529
+first_choice_binary,PC3,0.007785295788867671,first_choice_binary,LDT first choice,0.007785295788867671
+Kc,PC4,0.7113922346721425,condition_factor,Biometry/condition,0.7113922346721425
+blood_sugar,PC4,0.3570262047189753,blood_sugar,Physiology,0.3570262047189753
+mtpc,PC4,0.2930216976630527,mtpc,LDT transition behavior,0.2930216976630527
+vel_mean,PC4,0.2594555014079815,vel_mean,NTT locomotion,0.2594555014079815
+stratum_pref,PC4,-0.2332809800136112,stratum_pref,NTT spatial position,0.2332809800136112
+resistance_index,PC4,0.2096255424378246,resistance_index,Endurance,0.2096255424378246
+mov_total,PC4,-0.2024207109843241,mov_total,NTT locomotion,0.2024207109843241
+dist_total,PC4,0.17251972913480415,dist_total,NTT locomotion,0.17251972913480415
+time_bright,PC4,0.14804300389048033,time_bright,LDT phototaxis,0.14804300389048033
+num_changes,PC4,-0.09348211219990543,num_changes,LDT transition behavior,0.09348211219990543
+first_choice_binary,PC4,-0.07789299626882945,first_choice_binary,LDT first choice,0.07789299626882945
+latency,PC4,0.07531672457498657,latency,LDT decision latency,0.07531672457498657
+attempts,PC4,-0.0421764869875755,attempts,Endurance,0.0421764869875755
+resistance_index,PC5,-0.5680253301181051,resistance_index,Endurance,0.5680253301181051
+attempts,PC5,0.5472250265565681,attempts,Endurance,0.5472250265565681
+time_bright,PC5,-0.2732368055902231,time_bright,LDT phototaxis,0.2732368055902231
+latency,PC5,0.25444231916727517,latency,LDT decision latency,0.25444231916727517
+vel_mean,PC5,0.25349248810518427,vel_mean,NTT locomotion,0.25349248810518427
+first_choice_binary,PC5,-0.24865331892594666,first_choice_binary,LDT first choice,0.24865331892594666
+mtpc,PC5,-0.19825141424449821,mtpc,LDT transition behavior,0.19825141424449821
+dist_total,PC5,0.1922012075954657,dist_total,NTT locomotion,0.1922012075954657
+stratum_pref,PC5,-0.1439036392352225,stratum_pref,NTT spatial position,0.1439036392352225
+Kc,PC5,0.11326771741320923,condition_factor,Biometry/condition,0.11326771741320923
+blood_sugar,PC5,-0.03775764326270291,blood_sugar,Physiology,0.03775764326270291
+num_changes,PC5,-0.03445314056901559,num_changes,LDT transition behavior,0.03445314056901559
+mov_total,PC5,0.003227264988026328,mov_total,NTT locomotion,0.003227264988026328
+blood_sugar,PC6,0.7443728926420868,blood_sugar,Physiology,0.7443728926420868
+latency,PC6,0.5245193746405267,latency,LDT decision latency,0.5245193746405267
+stratum_pref,PC6,0.2308807439927818,stratum_pref,NTT spatial position,0.2308807439927818
+Kc,PC6,-0.2065473982005899,condition_factor,Biometry/condition,0.2065473982005899
+vel_mean,PC6,-0.15239528731716703,vel_mean,NTT locomotion,0.15239528731716703
+dist_total,PC6,-0.13342498809596143,dist_total,NTT locomotion,0.13342498809596143
+mtpc,PC6,-0.12535445323817307,mtpc,LDT transition behavior,0.12535445323817307
+resistance_index,PC6,-0.08914406405647445,resistance_index,Endurance,0.08914406405647445
+attempts,PC6,-0.06745750889728745,attempts,Endurance,0.06745750889728745
+time_bright,PC6,0.05970260138988211,time_bright,LDT phototaxis,0.05970260138988211
+mov_total,PC6,-0.029400277393931824,mov_total,NTT locomotion,0.029400277393931824
+num_changes,PC6,0.02482124651443418,num_changes,LDT transition behavior,0.02482124651443418
+first_choice_binary,PC6,0.023202064983852164,first_choice_binary,LDT first choice,0.023202064983852164
+first_choice_binary,PC7,0.7432269961177312,first_choice_binary,LDT first choice,0.7432269961177312
+stratum_pref,PC7,-0.4539749190155351,stratum_pref,NTT spatial position,0.4539749190155351
+latency,PC7,0.3291472476064695,latency,LDT decision latency,0.3291472476064695
+mtpc,PC7,-0.25859300414877445,mtpc,LDT transition behavior,0.25859300414877445
+num_changes,PC7,0.14026323892319728,num_changes,LDT transition behavior,0.14026323892319728
+blood_sugar,PC7,-0.1199090817273624,blood_sugar,Physiology,0.1199090817273624
+attempts,PC7,-0.10392848589001259,attempts,Endurance,0.10392848589001259
+time_bright,PC7,-0.08894032571671856,time_bright,LDT phototaxis,0.08894032571671856
+dist_total,PC7,0.06903667344776485,dist_total,NTT locomotion,0.06903667344776485
+Kc,PC7,0.06414023512627132,condition_factor,Biometry/condition,0.06414023512627132
+vel_mean,PC7,0.04817704584812789,vel_mean,NTT locomotion,0.04817704584812789
+mov_total,PC7,0.03999165929077828,mov_total,NTT locomotion,0.03999165929077828
+resistance_index,PC7,0.027354786617140914,resistance_index,Endurance,0.027354786617140914
+attempts,PC8,-0.5786860469490542,attempts,Endurance,0.5786860469490542
+resistance_index,PC8,-0.4594212398213723,resistance_index,Endurance,0.4594212398213723
+num_changes,PC8,0.3314745915636826,num_changes,LDT transition behavior,0.3314745915636826
+latency,PC8,0.26851023938261304,latency,LDT decision latency,0.26851023938261304
+time_bright,PC8,0.24778444333539204,time_bright,LDT phototaxis,0.24778444333539204
+blood_sugar,PC8,-0.24103142112067003,blood_sugar,Physiology,0.24103142112067003
+first_choice_binary,PC8,-0.23210454366524622,first_choice_binary,LDT first choice,0.23210454366524622
+mtpc,PC8,0.23004998278340336,mtpc,LDT transition behavior,0.23004998278340336
+vel_mean,PC8,0.12832749012250338,vel_mean,NTT locomotion,0.12832749012250338
+mov_total,PC8,-0.12737223585745233,mov_total,NTT locomotion,0.12737223585745233
+stratum_pref,PC8,-0.0948988726600903,stratum_pref,NTT spatial position,0.0948988726600903
+Kc,PC8,-0.056171041953076574,condition_factor,Biometry/condition,0.056171041953076574
+dist_total,PC8,0.030659854728254516,dist_total,NTT locomotion,0.030659854728254516
+stratum_pref,PC9,-0.6315516955612613,stratum_pref,NTT spatial position,0.6315516955612613
+Kc,PC9,-0.4793025318211773,condition_factor,Biometry/condition,0.4793025318211773
+blood_sugar,PC9,0.31692414109092376,blood_sugar,Physiology,0.31692414109092376
+num_changes,PC9,-0.22418669615817027,num_changes,LDT transition behavior,0.22418669615817027
+mtpc,PC9,0.21584455620212326,mtpc,LDT transition behavior,0.21584455620212326
+latency,PC9,-0.21132569746126648,latency,LDT decision latency,0.21132569746126648
+mov_total,PC9,0.19449647362652694,mov_total,NTT locomotion,0.19449647362652694
+first_choice_binary,PC9,-0.14790978585267187,first_choice_binary,LDT first choice,0.14790978585267187
+time_bright,PC9,-0.1388754064876282,time_bright,LDT phototaxis,0.1388754064876282
+dist_total,PC9,0.13556103987739035,dist_total,NTT locomotion,0.13556103987739035
+attempts,PC9,-0.12854661943588616,attempts,Endurance,0.12854661943588616
+vel_mean,PC9,0.12475068890273959,vel_mean,NTT locomotion,0.12475068890273959
+resistance_index,PC9,-0.0026842539753162923,resistance_index,Endurance,0.0026842539753162923

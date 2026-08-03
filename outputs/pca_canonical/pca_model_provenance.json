@@ -1,0 +1,31 @@
+{
+  "canonical_pca": "BT1 full-endpoint exploratory PCA",
+  "generator": "outputs/manuscript/pca_canonical.py (documented revision; R unavailable)",
+  "method": "prcomp-equivalent SVD, center=TRUE, scale=TRUE, ddof=1",
+  "dataset": "data_processed/bt1_audited.csv",
+  "n_endpoints": 14,
+  "endpoints": [
+    "time_bright",
+    "mtpc",
+    "first_choice_binary",
+    "latency",
+    "num_changes",
+    "dist_total",
+    "vel_mean",
+    "mov_total",
+    "stratum_pref",
+    "resistance_index",
+    "last_flux",
+    "attempts",
+    "time_in_last_flux",
+    "condition_factor"
+  ],
+  "initial_bt1_n": 136,
+  "complete_case_n": 135,
+  "excluded_missing_n": 1,
+  "PC1_pct": 23.3,
+  "PC2_pct": 17.2,
+  "PC3_pct": 10.3,
+  "sign_convention": "largest |loading| per PC set positive (sign arbitrary)",
+  "generated": "2026-08-01T22:38:48"
+}

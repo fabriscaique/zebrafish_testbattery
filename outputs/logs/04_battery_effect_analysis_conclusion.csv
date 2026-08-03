@@ -1,0 +1,8 @@
+"conclusion_item","conclusion"
+"Battery comparison structure","BT1-vs-BT2 is used for LDT/NTT endpoints; BT1-vs-BT3 is used for endurance endpoints."
+"Endpoint selection","Comparable endpoints are selected from the endpoint registry and availability checks; no primary/secondary hierarchy is used."
+"Difference testing","Battery-context differences are tested cell-wise within treatment × exposure combinations."
+"Effect-size reporting","Non-binary endpoints report Hedges' g and Cliff's delta/rank-biserial; binary endpoints report risk difference and odds ratio."
+"Bootstrap uncertainty","Bootstrap confidence intervals are generated for endpoint-appropriate statistics."
+"Equivalence rule","Equivalence is not claimed unless predefined SESOI bounds permit confirmatory TOST."
+"Downstream use","Saved outputs feed Notebook 06 concordance/robustness checks, Notebook 07 reporting, and Notebook 08 methods text."

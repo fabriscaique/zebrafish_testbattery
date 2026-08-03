@@ -1,0 +1,5 @@
+"comparison","source_test","comparability_decision","n_endpoints"
+"BT1_vs_BT2","LDT","retained: endpoint present in both compared batteries",5
+"BT1_vs_BT2","NTT","retained: endpoint present in both compared batteries",4
+"BT1_vs_BT3","RN","retained: endpoint present in both compared batteries",4
+NA,"post-test physiology","excluded: no valid battery pair for source_test",1

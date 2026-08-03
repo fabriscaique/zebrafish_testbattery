@@ -1,0 +1,14 @@
+order,expected_file,role,full_path,exists,status,size_bytes,modified_time,md5
+00W,python/00_data_wrangling.ipynb,wrangling,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/python/00_data_wrangling.ipynb,FALSE,missing,NA,NA,NA
+00R,notebooks/00_project_setup.Rmd,project setup,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/00_project_setup.Rmd,FALSE,missing,NA,NA,NA
+01,notebooks/01_data_audit_and_qc.Rmd,data audit and QC,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/01_data_audit_and_qc.Rmd,FALSE,missing,NA,NA,NA
+02,notebooks/02_endpoint_hierarchy_and_assumptions.Rmd,endpoint registry and assumptions,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/02_endpoint_hierarchy_and_assumptions.Rmd,FALSE,missing,NA,NA,NA
+03,notebooks/03_ethanol_factorial_models.Rmd,endpoint-level ethanol models,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/03_ethanol_factorial_models.Rmd,FALSE,missing,NA,NA,NA
+04,notebooks/04_battery_effect_analysis.Rmd,battery-context analysis,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/04_battery_effect_analysis.Rmd,FALSE,missing,NA,NA,NA
+05,notebooks/05_multivariate_pca_structure.Rmd,single full-battery PCA,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/05_multivariate_pca_structure.Rmd,FALSE,missing,NA,NA,NA
+06,notebooks/06_sensitivity_and_robustness.Rmd,concordance and robustness,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/06_sensitivity_and_robustness.Rmd,FALSE,missing,NA,NA,NA
+07,notebooks/07_reporting_tables_and_figures.Rmd,reporting tables and figures,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/07_reporting_tables_and_figures.Rmd,FALSE,missing,NA,NA,NA
+08,notebooks/08_statistical_methods_text.Rmd,statistical methods text,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/08_statistical_methods_text.Rmd,FALSE,missing,NA,NA,NA
+09,notebooks/09_reproducibility_audit.Rmd,reproducibility audit,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/09_reproducibility_audit.Rmd,FALSE,missing,NA,NA,NA
+10,notebooks/10_manuscript_results_and_discussion.Rmd,manuscript results and discussion,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/10_manuscript_results_and_discussion.Rmd,FALSE,not_yet_expected,NA,NA,NA
+11,notebooks/11_submission_package_audit.Rmd,submission package audit,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/11_submission_package_audit.Rmd,FALSE,not_yet_expected,NA,NA,NA

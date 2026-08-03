@@ -1,0 +1,2 @@
+condition_source,present,n_nonmissing,min_value,max_value,variance,finite_range,variable_values,range_flag,include_condition_factor_candidate
+Kc,TRUE,136,0.816326530612245,2.34970293041523,0.06749165737233363,TRUE,TRUE,range_plausible_for_scaled_condition_factor,TRUE

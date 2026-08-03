@@ -1,0 +1,4 @@
+"battery","condition_factor_column","weight_column","length_column","n_checked","n_flagged","max_abs_difference","median_condition_factor","conclusion"
+"BT1","Kc","wt","ls",136,0,4.44089209850063e-16,1.5845464335177,"Formula-consistent condition factor detected."
+"BT2","Kc","wt","ls",137,0,4.44089209850063e-16,1.875,"Formula-consistent condition factor detected."
+"BT3","Kc","wt","ls",135,0,4.44089209850063e-16,1.472,"Formula-consistent condition factor detected."

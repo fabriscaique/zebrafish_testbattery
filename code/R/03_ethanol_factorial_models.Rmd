@@ -1,0 +1,921 @@
+---
+title: "03 Ethanol Factorial Models"
+subtitle: "Endpoint-level treatment x exposure models"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE
+)
+```
+
+# Purpose
+
+This notebook tests ethanol-related effects at the endpoint level.
+
+The target model is:
+
+`endpoint ~ treatment * exposure`
+
+The notebook uses the audited BT1 full-battery dataset and the endpoint registry/model-readiness outputs generated in Notebook 02. It does not test battery-context effects and it does not run PCA. Battery comparisons belong to Notebook 04. PCA belongs to Notebook 05. Robustness and sensitivity checks belong to Notebook 06.
+
+The endpoint registry controls which variables are modeled. There is no primary/secondary hierarchy in this notebook. Endpoints are handled according to their practical role, data type, availability, and model-readiness status.
+
+# 03.1 Load project paths, data, and registry outputs
+
+```{r project-root}
+get_project_root <- function() {
+  if (requireNamespace("here", quietly = TRUE)) {
+    return(here::here())
+  }
+
+  if (requireNamespace("rprojroot", quietly = TRUE)) {
+    root <- tryCatch(
+      as.character(rprojroot::find_root(rprojroot::is_rstudio_project)),
+      error = function(e) NA_character_
+    )
+    if (!is.na(root)) return(root)
+  }
+
+  normalizePath(".", winslash = "/", mustWork = TRUE)
+}
+
+project_root <- get_project_root()
+
+paths <- list(
+  root = project_root,
+  data_processed = file.path(project_root, "data_processed"),
+  outputs = file.path(project_root, "outputs"),
+  outputs_logs = file.path(project_root, "outputs", "logs"),
+  outputs_tables = file.path(project_root, "outputs", "tables"),
+  outputs_models = file.path(project_root, "outputs", "models"),
+  outputs_figures = file.path(project_root, "outputs", "figures")
+)
+
+for (p in c(paths$outputs, paths$outputs_logs, paths$outputs_tables, paths$outputs_models, paths$outputs_figures)) {
+  dir.create(p, recursive = TRUE, showWarnings = FALSE)
+}
+
+paths
+```
+
+```{r helper-functions}
+read_csv_required <- function(path) {
+  if (!file.exists(path)) stop("Required file not found: ", path)
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+read_csv_optional <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+write_table <- function(df, filename, folder = paths$outputs_tables) {
+  path <- file.path(folder, filename)
+  write.csv(df, path, row.names = FALSE)
+  path
+}
+
+write_log <- function(df, filename) {
+  path <- file.path(paths$outputs_logs, filename)
+  write.csv(df, path, row.names = FALSE)
+  path
+}
+
+save_model_object <- function(object, filename) {
+  path <- file.path(paths$outputs_models, filename)
+  saveRDS(object, path)
+  path
+}
+
+safe_numeric <- function(x) {
+  suppressWarnings(as.numeric(x))
+}
+
+as_bool <- function(x) {
+  if (is.logical(x)) return(x)
+  if (is.numeric(x)) return(x == 1)
+  tolower(as.character(x)) %in% c("true", "1", "yes", "y")
+}
+
+standardize_exposure <- function(x) {
+  y <- trimws(as.character(x))
+  y <- ifelse(y %in% c("1", "1h", "1H"), "1h",
+    ifelse(y %in% c("24", "24h", "24H"), "24h",
+      ifelse(y %in% c("96", "96h", "96H"), "96h", y)
+    )
+  )
+  factor(y, levels = c("1h", "24h", "96h"))
+}
+
+standardize_factors <- function(df) {
+  if ("treatment" %in% names(df)) {
+    df$treatment <- factor(as.character(df$treatment), levels = c("0", "0.5", "1"))
+  }
+  if ("exposure" %in% names(df)) {
+    df$exposure <- standardize_exposure(df$exposure)
+  }
+  if ("battery" %in% names(df)) {
+    df$battery <- factor(as.character(df$battery), levels = c("BT1", "BT2", "BT3"))
+  }
+  df
+}
+
+clean_for_model <- function(df, resolved_variable) {
+  if (is.na(resolved_variable) || !resolved_variable %in% names(df)) {
+    return(data.frame())
+  }
+
+  required <- c("treatment", "exposure")
+  if (!all(required %in% names(df))) {
+    return(data.frame())
+  }
+
+  out <- df
+
+  if ("global_exclusion_flag" %in% names(out)) {
+    out <- out[!as_bool(out$global_exclusion_flag), ]
+  }
+
+  out$value <- safe_numeric(out[[resolved_variable]])
+  out <- out[!is.na(out$value) & !is.na(out$treatment) & !is.na(out$exposure), ]
+
+  if (nrow(out) == 0) return(out)
+
+  out$treatment <- droplevels(out$treatment)
+  out$exposure <- droplevels(out$exposure)
+  out
+}
+
+has_factorial_structure <- function(df) {
+  if (nrow(df) < 6) return(FALSE)
+  if (!all(c("treatment", "exposure", "value") %in% names(df))) return(FALSE)
+  if (nlevels(df$treatment) < 2) return(FALSE)
+  if (nlevels(df$exposure) < 2) return(FALSE)
+  TRUE
+}
+
+extract_p_column <- function(df) {
+  candidates <- grep("Pr|p.value|p_value|p-value", names(df), ignore.case = TRUE, value = TRUE)
+  if (length(candidates) == 0) return(rep(NA_real_, nrow(df)))
+  suppressWarnings(as.numeric(df[[candidates[1]]]))
+}
+
+extract_stat_column <- function(df) {
+  candidates <- grep("F value|F$|statistic|Chisq|Chi|z value|t value", names(df), ignore.case = TRUE, value = TRUE)
+  if (length(candidates) == 0) return(rep(NA_real_, nrow(df)))
+  suppressWarnings(as.numeric(df[[candidates[1]]]))
+}
+
+extract_df_column <- function(df) {
+  candidates <- grep("^Df$|Df|df|num Df", names(df), ignore.case = TRUE, value = TRUE)
+  if (length(candidates) == 0) return(rep(NA_real_, nrow(df)))
+  suppressWarnings(as.numeric(df[[candidates[1]]]))
+}
+
+empty_model_result <- function(endpoint, resolved_variable, domain, source_test, data_type, model_family, model_method, model_note) {
+  data.frame(
+    endpoint = endpoint,
+    resolved_variable = resolved_variable,
+    domain = domain,
+    source_test = source_test,
+    data_type = data_type,
+    model_family = model_family,
+    dataset = "BT1",
+    model_method = model_method,
+    term = NA_character_,
+    df = NA_real_,
+    statistic = NA_real_,
+    p_value = NA_real_,
+    model_note = model_note,
+    stringsAsFactors = FALSE
+  )
+}
+
+tidy_model_table <- function(anova_object, endpoint, resolved_variable, domain, source_test, data_type, model_family, model_method, model_note) {
+  tab <- as.data.frame(anova_object)
+  tab$term <- rownames(tab)
+  rownames(tab) <- NULL
+
+  data.frame(
+    endpoint = endpoint,
+    resolved_variable = resolved_variable,
+    domain = domain,
+    source_test = source_test,
+    data_type = data_type,
+    model_family = model_family,
+    dataset = "BT1",
+    model_method = model_method,
+    term = tab$term,
+    df = extract_df_column(tab),
+    statistic = extract_stat_column(tab),
+    p_value = extract_p_column(tab),
+    model_note = model_note,
+    stringsAsFactors = FALSE
+  )
+}
+
+coefficient_table <- function(model, endpoint, resolved_variable, domain, source_test, data_type, model_family, transform = "none") {
+  coefs <- tryCatch(summary(model)$coefficients, error = function(e) NULL)
+  if (is.null(coefs)) return(data.frame())
+
+  out <- as.data.frame(coefs)
+  out$term <- rownames(out)
+  rownames(out) <- NULL
+
+  estimate_col <- grep("Estimate", names(out), value = TRUE)[1]
+  se_col <- grep("Std. Error", names(out), value = TRUE)[1]
+  p_col <- grep("Pr\\(", names(out), value = TRUE)[1]
+
+  estimates <- suppressWarnings(as.numeric(out[[estimate_col]]))
+  ses <- if (!is.na(se_col)) suppressWarnings(as.numeric(out[[se_col]])) else rep(NA_real_, nrow(out))
+  pvals <- if (!is.na(p_col)) suppressWarnings(as.numeric(out[[p_col]])) else rep(NA_real_, nrow(out))
+
+  if (transform == "exp") {
+    estimate_out <- exp(estimates)
+    ci_low <- exp(estimates - 1.96 * ses)
+    ci_high <- exp(estimates + 1.96 * ses)
+    scale <- "exponentiated_coefficient"
+  } else {
+    estimate_out <- estimates
+    ci_low <- estimates - 1.96 * ses
+    ci_high <- estimates + 1.96 * ses
+    scale <- "model_coefficient"
+  }
+
+  data.frame(
+    endpoint = endpoint,
+    resolved_variable = resolved_variable,
+    domain = domain,
+    source_test = source_test,
+    data_type = data_type,
+    model_family = model_family,
+    dataset = "BT1",
+    term = out$term,
+    effect_scale = scale,
+    estimate = estimate_out,
+    ci_low_approx = ci_low,
+    ci_high_approx = ci_high,
+    p_value = pvals,
+    stringsAsFactors = FALSE
+  )
+}
+
+make_binary01 <- function(x) {
+  if (is.numeric(x) || is.logical(x)) {
+    y <- as.numeric(x)
+    y[!y %in% c(0, 1)] <- NA_real_
+    return(y)
+  }
+
+  y <- tolower(trimws(as.character(x)))
+  out <- rep(NA_real_, length(y))
+  out[y %in% c("1", "true", "yes", "bright", "light", "claro", "white")] <- 1
+  out[y %in% c("0", "false", "no", "dark", "escuro", "black")] <- 0
+  out
+}
+```
+
+```{r load-inputs}
+bt1 <- read_csv_required(file.path(paths$data_processed, "bt1_audited.csv"))
+bt2 <- read_csv_required(file.path(paths$data_processed, "bt2_audited.csv"))
+bt3 <- read_csv_required(file.path(paths$data_processed, "bt3_audited.csv"))
+
+bt1 <- standardize_factors(bt1)
+bt2 <- standardize_factors(bt2)
+bt3 <- standardize_factors(bt3)
+
+endpoint_registry <- read_csv_optional(file.path(paths$outputs_logs, "02_endpoint_registry.csv"))
+model_decision_matrix <- read_csv_optional(file.path(paths$outputs_logs, "02_model_decision_matrix.csv"))
+
+if (is.null(model_decision_matrix)) {
+  if (is.null(endpoint_registry)) {
+    stop("Notebook 03 requires outputs/logs/02_model_decision_matrix.csv or outputs/logs/02_endpoint_registry.csv from Notebook 02.")
+  }
+  model_decision_matrix <- endpoint_registry
+}
+
+load_summary <- data.frame(
+  object = c("bt1_audited", "bt2_audited", "bt3_audited", "endpoint_registry", "model_decision_matrix"),
+  loaded = c(TRUE, TRUE, TRUE, !is.null(endpoint_registry), !is.null(model_decision_matrix)),
+  rows = c(nrow(bt1), nrow(bt2), nrow(bt3), if (is.null(endpoint_registry)) NA_integer_ else nrow(endpoint_registry), nrow(model_decision_matrix)),
+  columns = c(ncol(bt1), ncol(bt2), ncol(bt3), if (is.null(endpoint_registry)) NA_integer_ else ncol(endpoint_registry), ncol(model_decision_matrix)),
+  stringsAsFactors = FALSE
+)
+
+write_log(load_summary, "03_ethanol_model_input_load_summary.csv")
+load_summary
+```
+
+```{r package-availability}
+package_availability <- data.frame(
+  package = c("ARTool", "car", "emmeans", "MASS", "logistf", "broom"),
+  available = c(
+    requireNamespace("ARTool", quietly = TRUE),
+    requireNamespace("car", quietly = TRUE),
+    requireNamespace("emmeans", quietly = TRUE),
+    requireNamespace("MASS", quietly = TRUE),
+    requireNamespace("logistf", quietly = TRUE),
+    requireNamespace("broom", quietly = TRUE)
+  ),
+  role = c(
+    "Aligned-rank factorial models for non-normal continuous or bounded endpoints.",
+    "Type-III ANOVA fallback for linear models.",
+    "Estimated marginal means and post-hoc contrasts when justified.",
+    "Negative-binomial models for overdispersed counts.",
+    "Firth logistic regression for sparse binary endpoints.",
+    "Optional model tidying."
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_log(package_availability, "03_ethanol_model_package_availability.csv")
+package_availability
+```
+
+# 03.2 Define the endpoint-level model set
+
+The endpoint set is taken from Notebook 02. An endpoint is eligible here when it is available in BT1 and marked as a model candidate in the endpoint registry/model-readiness table.
+
+This section does not rank endpoints. It records which endpoint-level models are run and which are skipped.
+
+```{r model-set}
+required_cols <- c("variable", "domain", "source_test", "data_type", "resolved_variable_BT1", "available_BT1")
+missing_cols <- setdiff(required_cols, names(model_decision_matrix))
+if (length(missing_cols) > 0) {
+  stop("Model decision matrix is missing required columns: ", paste(missing_cols, collapse = ", "))
+}
+
+if (!"model_candidate" %in% names(model_decision_matrix)) {
+  if ("endpoint_model" %in% names(model_decision_matrix)) {
+    model_decision_matrix$model_candidate <- model_decision_matrix$endpoint_model %in% c("yes", "yes_if_justified", "yes_if_feasible", "optional_supportive")
+  } else {
+    model_decision_matrix$model_candidate <- FALSE
+  }
+}
+
+if (!"recommended_model_family" %in% names(model_decision_matrix)) {
+  model_decision_matrix$recommended_model_family <- ifelse(
+    grepl("binary", model_decision_matrix$data_type, ignore.case = TRUE),
+    "binary_logistic_or_firth",
+    ifelse(
+      model_decision_matrix$data_type %in% c("count", "ordinal/step"),
+      "count_glm_or_negative_binomial",
+      "continuous_factorial_art_or_lm"
+    )
+  )
+}
+
+model_plan <- model_decision_matrix[
+  model_decision_matrix$model_candidate &
+    model_decision_matrix$available_BT1 &
+    !is.na(model_decision_matrix$resolved_variable_BT1),
+]
+
+model_plan <- model_plan[!model_plan$data_type %in% c("identifier", "design", "datetime", "categorical"), ]
+model_plan <- model_plan[order(model_plan$source_test, model_plan$domain, model_plan$variable), ]
+
+skip_plan <- model_decision_matrix[!(model_decision_matrix$variable %in% model_plan$variable), ]
+
+write_table(model_plan, "03_ethanol_model_plan.csv")
+write_log(model_plan, "03_ethanol_model_plan.csv")
+write_log(skip_plan, "03_ethanol_model_skipped_registry_rows.csv")
+
+model_plan
+```
+
+# 03.3 State the factorial question
+
+The common target is `value ~ treatment * exposure`.
+
+`treatment` tests ethanol concentration. `exposure` tests exposure duration. The interaction tests whether the ethanol concentration effect changes across exposure durations.
+
+```{r factorial-question}
+factorial_question <- data.frame(
+  item = c(
+    "model_target",
+    "analysis_dataset",
+    "treatment_main_effect",
+    "exposure_main_effect",
+    "interaction_effect",
+    "battery_rule",
+    "pca_rule"
+  ),
+  definition = c(
+    "endpoint value ~ treatment * exposure",
+    "BT1 audited full-battery dataset",
+    "Association between ethanol concentration and the endpoint within the factorial model.",
+    "Association between exposure duration and the endpoint within the factorial model.",
+    "Whether ethanol concentration effects differ by exposure duration.",
+    "Battery-context comparisons are not run in Notebook 03.",
+    "PCA is not run in Notebook 03 and does not replace endpoint-level models."
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_log(factorial_question, "03_ethanol_factorial_question.csv")
+factorial_question
+```
+
+# 03.4 Model functions
+
+Model choice is based on the endpoint registry and data type.
+
+Continuous, bounded, derived, physiological, and biometric endpoints are modeled as factorial endpoints using ART-ANOVA when available, with a linear-model ANOVA fallback. Binary endpoints use Firth logistic regression when available, with logistic regression fallback. Count-like endpoints use negative-binomial models when available and variance suggests overdispersion, with Poisson fallback.
+
+```{r model-functions-continuous}
+fit_continuous_endpoint <- function(df, row) {
+  endpoint <- row$variable
+  resolved <- row$resolved_variable_BT1
+  domain <- row$domain
+  source_test <- row$source_test
+  data_type <- row$data_type
+  model_family <- row$recommended_model_family
+
+  d <- clean_for_model(df, resolved)
+
+  if (!has_factorial_structure(d)) {
+    return(list(
+      result = empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "not_run", "Endpoint unavailable or insufficient factorial structure."),
+      effect = data.frame(),
+      posthoc = data.frame(),
+      model_path = NA_character_,
+      n_model = nrow(d)
+    ))
+  }
+
+  formula_object <- value ~ treatment * exposure
+
+  if (requireNamespace("ARTool", quietly = TRUE)) {
+    fit_art <- tryCatch(ARTool::art(formula_object, data = d), error = function(e) e)
+    if (!inherits(fit_art, "error")) {
+      a <- tryCatch(anova(fit_art), error = function(e) e)
+      if (!inherits(a, "error")) {
+        result <- tidy_model_table(
+          a, endpoint, resolved, domain, source_test, data_type, model_family,
+          "ART-ANOVA",
+          "Aligned Rank Transform factorial model. Interpret endpoint effects from treatment, exposure, and treatment:exposure terms."
+        )
+
+        model_path <- save_model_object(
+          list(model = fit_art, analysis_data = d, endpoint = endpoint, resolved_variable = resolved, method = "ART-ANOVA"),
+          paste0("03_model_ethanol_", endpoint, "_art.rds")
+        )
+
+        return(list(result = result, effect = data.frame(), posthoc = data.frame(), model_path = model_path, n_model = nrow(d)))
+      }
+    }
+  }
+
+  fit_lm <- tryCatch(lm(formula_object, data = d), error = function(e) e)
+  if (inherits(fit_lm, "error")) {
+    return(list(
+      result = empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "not_run", paste("Linear fallback failed:", fit_lm$message)),
+      effect = data.frame(),
+      posthoc = data.frame(),
+      model_path = NA_character_,
+      n_model = nrow(d)
+    ))
+  }
+
+  if (requireNamespace("car", quietly = TRUE)) {
+    a <- tryCatch(car::Anova(fit_lm, type = 3), error = function(e) anova(fit_lm))
+    method <- "linear model ANOVA fallback; Type-III if car::Anova succeeded"
+  } else {
+    a <- anova(fit_lm)
+    method <- "linear model ANOVA fallback; sequential ANOVA because car is unavailable"
+  }
+
+  result <- tidy_model_table(
+    a, endpoint, resolved, domain, source_test, data_type, model_family,
+    method,
+    "Fallback model. Interpret with Notebook 02 diagnostics and Notebook 06 robustness checks."
+  )
+
+  effect <- coefficient_table(fit_lm, endpoint, resolved, domain, source_test, data_type, model_family, transform = "none")
+
+  posthoc <- data.frame()
+  pvals <- result$p_value[!is.na(result$p_value)]
+  if (length(pvals) > 0 && any(pvals < 0.05) && requireNamespace("emmeans", quietly = TRUE)) {
+    treatment_contrasts <- tryCatch(
+      as.data.frame(emmeans::contrast(emmeans::emmeans(fit_lm, ~ treatment | exposure), method = "pairwise")),
+      error = function(e) data.frame()
+    )
+    exposure_contrasts <- tryCatch(
+      as.data.frame(emmeans::contrast(emmeans::emmeans(fit_lm, ~ exposure | treatment), method = "pairwise")),
+      error = function(e) data.frame()
+    )
+
+    if (nrow(treatment_contrasts) > 0) {
+      treatment_contrasts$contrast_family <- "treatment_within_exposure"
+      treatment_contrasts$endpoint <- endpoint
+      treatment_contrasts$resolved_variable <- resolved
+      treatment_contrasts$dataset <- "BT1"
+    }
+    if (nrow(exposure_contrasts) > 0) {
+      exposure_contrasts$contrast_family <- "exposure_within_treatment"
+      exposure_contrasts$endpoint <- endpoint
+      exposure_contrasts$resolved_variable <- resolved
+      exposure_contrasts$dataset <- "BT1"
+    }
+    posthoc <- rbind(treatment_contrasts, exposure_contrasts)
+  }
+
+  model_path <- save_model_object(
+    list(model = fit_lm, analysis_data = d, endpoint = endpoint, resolved_variable = resolved, method = method),
+    paste0("03_model_ethanol_", endpoint, "_lm_fallback.rds")
+  )
+
+  list(result = result, effect = effect, posthoc = posthoc, model_path = model_path, n_model = nrow(d))
+}
+```
+
+```{r model-functions-binary}
+fit_binary_endpoint <- function(df, row) {
+  endpoint <- row$variable
+  resolved <- row$resolved_variable_BT1
+  domain <- row$domain
+  source_test <- row$source_test
+  data_type <- row$data_type
+  model_family <- row$recommended_model_family
+
+  d <- df
+  if ("global_exclusion_flag" %in% names(d)) d <- d[!as_bool(d$global_exclusion_flag), ]
+
+  if (is.na(resolved) || !resolved %in% names(d)) {
+    return(list(
+      result = empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "not_run", "Binary endpoint not available."),
+      effect = data.frame(),
+      posthoc = data.frame(),
+      model_path = NA_character_,
+      n_model = 0
+    ))
+  }
+
+  d$value <- make_binary01(d[[resolved]])
+  d <- d[!is.na(d$value) & !is.na(d$treatment) & !is.na(d$exposure), ]
+  d$treatment <- droplevels(d$treatment)
+  d$exposure <- droplevels(d$exposure)
+
+  if (!has_factorial_structure(d) || length(unique(d$value)) < 2) {
+    return(list(
+      result = empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "not_run", "Insufficient valid binary observations or insufficient factorial structure."),
+      effect = data.frame(),
+      posthoc = data.frame(),
+      model_path = NA_character_,
+      n_model = nrow(d)
+    ))
+  }
+
+  formula_object <- value ~ treatment * exposure
+
+  if (requireNamespace("logistf", quietly = TRUE)) {
+    fit <- tryCatch(logistf::logistf(formula_object, data = d), error = function(e) e)
+    if (!inherits(fit, "error")) {
+      coefs <- data.frame(
+        endpoint = endpoint,
+        resolved_variable = resolved,
+        domain = domain,
+        source_test = source_test,
+        data_type = data_type,
+        model_family = model_family,
+        dataset = "BT1",
+        term = names(fit$coefficients),
+        effect_scale = "odds_ratio",
+        estimate = exp(as.numeric(fit$coefficients)),
+        ci_low_approx = exp(as.numeric(fit$ci.lower)),
+        ci_high_approx = exp(as.numeric(fit$ci.upper)),
+        p_value = as.numeric(fit$prob),
+        stringsAsFactors = FALSE
+      )
+
+      result <- data.frame(
+        endpoint = endpoint,
+        resolved_variable = resolved,
+        domain = domain,
+        source_test = source_test,
+        data_type = data_type,
+        model_family = model_family,
+        dataset = "BT1",
+        model_method = "Firth logistic regression",
+        term = coefs$term,
+        df = NA_real_,
+        statistic = NA_real_,
+        p_value = coefs$p_value,
+        model_note = "Coefficient-level Firth logistic results. No-choice observations are not valid binary outcomes and are excluded from this model.",
+        stringsAsFactors = FALSE
+      )
+
+      model_path <- save_model_object(
+        list(model = fit, analysis_data = d, endpoint = endpoint, resolved_variable = resolved, method = "Firth logistic regression"),
+        paste0("03_model_ethanol_", endpoint, "_firth.rds")
+      )
+
+      return(list(result = result, effect = coefs, posthoc = data.frame(), model_path = model_path, n_model = nrow(d)))
+    }
+  }
+
+  fit <- tryCatch(glm(formula_object, data = d, family = binomial()), error = function(e) e)
+  if (inherits(fit, "error")) {
+    return(list(
+      result = empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "not_run", paste("Binary model failed:", fit$message)),
+      effect = data.frame(),
+      posthoc = data.frame(),
+      model_path = NA_character_,
+      n_model = nrow(d)
+    ))
+  }
+
+  a <- tryCatch(anova(fit, test = "Chisq"), error = function(e) e)
+  result <- if (inherits(a, "error")) {
+    empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "logistic regression fallback", paste("Could not extract likelihood-ratio table:", a$message))
+  } else {
+    tidy_model_table(a, endpoint, resolved, domain, source_test, data_type, model_family, "logistic regression fallback", "Ordinary logistic regression fallback. Use Notebook 02 binary-feasibility diagnostics and Notebook 06 robustness checks.")
+  }
+
+  effect <- coefficient_table(fit, endpoint, resolved, domain, source_test, data_type, model_family, transform = "exp")
+
+  model_path <- save_model_object(
+    list(model = fit, analysis_data = d, endpoint = endpoint, resolved_variable = resolved, method = "logistic regression fallback"),
+    paste0("03_model_ethanol_", endpoint, "_logistic_fallback.rds")
+  )
+
+  list(result = result, effect = effect, posthoc = data.frame(), model_path = model_path, n_model = nrow(d))
+}
+```
+
+```{r model-functions-count}
+fit_count_endpoint <- function(df, row) {
+  endpoint <- row$variable
+  resolved <- row$resolved_variable_BT1
+  domain <- row$domain
+  source_test <- row$source_test
+  data_type <- row$data_type
+  model_family <- row$recommended_model_family
+
+  d <- clean_for_model(df, resolved)
+
+  if (!has_factorial_structure(d)) {
+    return(list(
+      result = empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "not_run", "Count endpoint unavailable or insufficient factorial structure."),
+      effect = data.frame(),
+      posthoc = data.frame(),
+      model_path = NA_character_,
+      n_model = nrow(d)
+    ))
+  }
+
+  d$value <- round(d$value)
+  d <- d[d$value >= 0, ]
+  if (nrow(d) == 0 || length(unique(d$value)) < 2) {
+    return(list(
+      result = empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "not_run", "Count endpoint has insufficient non-negative variation."),
+      effect = data.frame(),
+      posthoc = data.frame(),
+      model_path = NA_character_,
+      n_model = nrow(d)
+    ))
+  }
+
+  variance_to_mean <- ifelse(mean(d$value, na.rm = TRUE) > 0, var(d$value, na.rm = TRUE) / mean(d$value, na.rm = TRUE), NA_real_)
+  formula_object <- value ~ treatment * exposure
+
+  if (!is.na(variance_to_mean) && variance_to_mean > 1.5 && requireNamespace("MASS", quietly = TRUE)) {
+    fit <- tryCatch(MASS::glm.nb(formula_object, data = d), error = function(e) e)
+    model_method <- "negative-binomial GLM"
+  } else {
+    fit <- tryCatch(glm(formula_object, data = d, family = poisson()), error = function(e) e)
+    model_method <- "Poisson GLM"
+  }
+
+  if (inherits(fit, "error")) {
+    return(list(
+      result = empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, "not_run", paste("Count model failed:", fit$message)),
+      effect = data.frame(),
+      posthoc = data.frame(),
+      model_path = NA_character_,
+      n_model = nrow(d)
+    ))
+  }
+
+  a <- tryCatch(anova(fit, test = "Chisq"), error = function(e) e)
+  result <- if (inherits(a, "error")) {
+    empty_model_result(endpoint, resolved, domain, source_test, data_type, model_family, model_method, paste("Could not extract count-model ANOVA:", a$message))
+  } else {
+    tidy_model_table(a, endpoint, resolved, domain, source_test, data_type, model_family, model_method, paste0("Count endpoint model. Variance-to-mean ratio = ", round(variance_to_mean, 3), "."))
+  }
+
+  effect <- coefficient_table(fit, endpoint, resolved, domain, source_test, data_type, model_family, transform = "exp")
+
+  model_path <- save_model_object(
+    list(model = fit, analysis_data = d, endpoint = endpoint, resolved_variable = resolved, method = model_method, variance_to_mean = variance_to_mean),
+    paste0("03_model_ethanol_", endpoint, "_count.rds")
+  )
+
+  list(result = result, effect = effect, posthoc = data.frame(), model_path = model_path, n_model = nrow(d))
+}
+```
+
+```{r dispatch-model-function}
+fit_registry_endpoint <- function(df, row) {
+  data_type <- tolower(as.character(row$data_type))
+
+  if (grepl("binary", data_type)) {
+    return(fit_binary_endpoint(df, row))
+  }
+
+  if (data_type %in% c("count", "ordinal/step") || grepl("count", data_type)) {
+    return(fit_count_endpoint(df, row))
+  }
+
+  fit_continuous_endpoint(df, row)
+}
+```
+
+# 03.5 Run endpoint-level ethanol models
+
+This section runs the planned endpoint-level models for BT1.
+
+```{r run-endpoint-models}
+model_objects <- lapply(seq_len(nrow(model_plan)), function(i) {
+  fit_registry_endpoint(bt1, model_plan[i, ])
+})
+
+names(model_objects) <- model_plan$variable
+
+factorial_results <- if (length(model_objects) == 0) {
+  data.frame()
+} else {
+  do.call(rbind, lapply(model_objects, function(x) x$result))
+}
+
+effect_results <- if (length(model_objects) == 0) {
+  data.frame()
+} else {
+  do.call(rbind, lapply(model_objects, function(x) x$effect))
+}
+
+posthoc_results <- if (length(model_objects) == 0) {
+  data.frame()
+} else {
+  do.call(rbind, lapply(model_objects, function(x) x$posthoc))
+}
+
+model_paths <- if (length(model_objects) == 0) {
+  data.frame()
+} else {
+  data.frame(
+    endpoint = names(model_objects),
+    model_path = vapply(model_objects, function(x) x$model_path, character(1)),
+    n_model = vapply(model_objects, function(x) x$n_model, numeric(1)),
+    stringsAsFactors = FALSE
+  )
+}
+
+factorial_results
+```
+
+# 03.6 Multiple-testing correction
+
+BH-FDR is applied to the endpoint-level factorial test table. Correction is applied within model-method families to avoid mixing unrelated coefficient-level and omnibus-style outputs indiscriminately.
+
+```{r multiple-testing-correction}
+if (nrow(factorial_results) > 0) {
+  factorial_results$p_adj_bh <- NA_real_
+
+  valid <- !is.na(factorial_results$p_value)
+  families <- unique(factorial_results$model_method[valid])
+
+  for (fam in families) {
+    idx <- valid & factorial_results$model_method == fam
+    factorial_results$p_adj_bh[idx] <- p.adjust(factorial_results$p_value[idx], method = "BH")
+  }
+
+  factorial_results$effect_flag_bh_0_05 <- !is.na(factorial_results$p_adj_bh) & factorial_results$p_adj_bh < 0.05
+}
+
+if (nrow(effect_results) > 0 && "p_value" %in% names(effect_results)) {
+  effect_results$p_adj_bh <- NA_real_
+  valid_effects <- !is.na(effect_results$p_value)
+  effect_results$p_adj_bh[valid_effects] <- p.adjust(effect_results$p_value[valid_effects], method = "BH")
+}
+
+factorial_results
+```
+
+# 03.7 Domain summaries
+
+These tables organize the model outputs by test/domain without changing the inferential hierarchy.
+
+```{r domain-summaries}
+domain_model_tables <- if (nrow(factorial_results) == 0) {
+  list()
+} else {
+  split(factorial_results, factorial_results$source_test)
+}
+
+domain_summary <- if (nrow(factorial_results) == 0) {
+  data.frame()
+} else {
+  aggregate(
+    effect_flag_bh_0_05 ~ source_test + domain + endpoint,
+    data = factorial_results,
+    FUN = function(x) any(x, na.rm = TRUE)
+  )
+}
+
+names(domain_summary)[names(domain_summary) == "effect_flag_bh_0_05"] <- "any_bh_significant_term"
+
+domain_summary
+```
+
+```{r model-term-summary}
+term_summary <- if (nrow(factorial_results) == 0) {
+  data.frame()
+} else {
+  factorial_results[!is.na(factorial_results$term), c(
+    "endpoint", "resolved_variable", "source_test", "domain", "model_method", "term", "p_value", "p_adj_bh", "effect_flag_bh_0_05", "model_note"
+  )]
+}
+
+term_summary
+```
+
+# 03.8 Export outputs
+
+```{r export-outputs}
+write_table(factorial_results, "03_ethanol_factorial_results.csv")
+write_table(effect_results, "03_ethanol_effect_estimates.csv")
+write_table(posthoc_results, "03_ethanol_posthoc_contrasts.csv")
+write_log(model_paths, "03_ethanol_model_paths.csv")
+write_log(term_summary, "03_ethanol_model_term_summary.csv")
+write_table(domain_summary, "03_ethanol_domain_summary.csv")
+
+for (source in unique(factorial_results$source_test)) {
+  safe_source <- gsub("[^A-Za-z0-9_]+", "_", tolower(source))
+  write_table(factorial_results[factorial_results$source_test == source, ], paste0("03_ethanol_models_", safe_source, ".csv"))
+}
+
+export_summary <- data.frame(
+  output = c(
+    "03_ethanol_model_plan.csv",
+    "03_ethanol_factorial_results.csv",
+    "03_ethanol_effect_estimates.csv",
+    "03_ethanol_posthoc_contrasts.csv",
+    "03_ethanol_model_paths.csv",
+    "03_ethanol_domain_summary.csv"
+  ),
+  location = c(
+    paths$outputs_tables,
+    paths$outputs_tables,
+    paths$outputs_tables,
+    paths$outputs_tables,
+    paths$outputs_logs,
+    paths$outputs_tables
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_log(export_summary, "03_ethanol_export_summary.csv")
+export_summary
+```
+
+# 03.9 Notebook conclusion
+
+```{r conclusion}
+notebook03_conclusion <- data.frame(
+  item = c(
+    "analysis_scope",
+    "dataset",
+    "model_target",
+    "endpoint_selection",
+    "battery_context",
+    "pca_context",
+    "next_notebook"
+  ),
+  conclusion = c(
+    "Endpoint-level ethanol models were run for model-candidate endpoints available in BT1.",
+    "BT1 audited full-battery dataset.",
+    "endpoint value ~ treatment * exposure.",
+    "Endpoint selection followed the Notebook 02 endpoint registry and model-readiness table.",
+    "Battery-context effects were not tested here and remain assigned to Notebook 04.",
+    "PCA was not run here and remains assigned to Notebook 05.",
+    "Notebook 04 should test battery-context effects for comparable endpoint/cell combinations."
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_log(notebook03_conclusion, "03_ethanol_notebook_conclusion.csv")
+notebook03_conclusion
+```

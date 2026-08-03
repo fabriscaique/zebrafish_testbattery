@@ -1,0 +1,13 @@
+"comparison","source_test","domain","battery_method_conclusion","n_endpoint_cells"
+"BT1_vs_BT2","LDT","LDT decision latency","Inconclusive",9
+"BT1_vs_BT2","LDT","LDT first choice","Inconclusive",9
+"BT1_vs_BT2","LDT","LDT phototaxis","Difference detected",1
+"BT1_vs_BT2","LDT","LDT phototaxis","Inconclusive",8
+"BT1_vs_BT2","LDT","LDT transition behavior","Difference detected",1
+"BT1_vs_BT2","LDT","LDT transition behavior","Inconclusive",17
+"BT1_vs_BT2","NTT","NTT locomotion","Difference detected",5
+"BT1_vs_BT2","NTT","NTT locomotion","Inconclusive",22
+"BT1_vs_BT2","NTT","NTT spatial position","Difference detected",1
+"BT1_vs_BT2","NTT","NTT spatial position","Inconclusive",8
+"BT1_vs_BT3","RN","endurance","Difference detected",11
+"BT1_vs_BT3","RN","endurance","Inconclusive",25

@@ -1,0 +1,7 @@
+audit_layer,status,details
+Notebook inventory,flag,11 missing expected notebook files.
+Expected output audit,flag,1 missing required upstream outputs.
+Reporting bundle audit,pass,0 missing reporting-bundle files.
+Methods text audit,flag,1 flags; 1 review items.
+Package/session audit,generated,Package versions and session info exported.
+Claim-source map,generated,Claim-source map exported.

@@ -1,0 +1,4 @@
+"battery","n_rows","n_columns","n_unique_fish_id","has_battery_column","has_treatment_column","has_exposure_column","has_datetime_column"
+"BT1",136,68,136,TRUE,TRUE,TRUE,TRUE
+"BT2",139,68,139,TRUE,TRUE,TRUE,TRUE
+"BT3",135,68,135,TRUE,TRUE,TRUE,TRUE

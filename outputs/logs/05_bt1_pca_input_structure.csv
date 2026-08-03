@@ -1,0 +1,2 @@
+dataset,rows_after_global_exclusion,columns,unique_fish_ids,endpoint_registry_loaded,pca_readiness_loaded,condition_factor_readiness_loaded
+BT1,136,68,136,TRUE,TRUE,TRUE

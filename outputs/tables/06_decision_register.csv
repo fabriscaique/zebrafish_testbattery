@@ -1,0 +1,11 @@
+item,expected_rule,evidence_output,status
+Repository structure,Use existing repository structure.,06_file_concordance.csv,pass
+Endpoint registry,Use practical endpoint roles.,06_endpoint_registry_concordance.csv,pass
+Primary/secondary hierarchy,Do not use primary/secondary endpoint hierarchy.,06_endpoint_registry_concordance.csv,pass
+Endpoint-level ethanol models,"Test treatment, exposure, and treatment x exposure for model-tested endpoints.",03 model outputs + 06 audit,checked_by_output_presence
+Battery-context analysis,Analyze battery context separately from ethanol pharmacology.,04 battery outputs + 06 audit,checked_by_output_presence
+Single PCA,Run one single full-battery BT1 PCA.,06_pca_variable_concordance.csv; 06_pca_loadings_reconstructed.csv,pass
+PCA axis labels,Assign labels from loadings after PCA is run.,06_pca_component_labels_from_loadings.csv,pass
+Condition factor,Treat Kc/Kf/condition factor as the same construct if formula/range audit passes.,06_condition_factor_audit.csv,pass
+PCA score summaries,"Use PC scores and centroids as descriptive annotations, not primary inference.",06_pca_treatment_exposure_centroids.csv,pass
+Notebook 06 role,"Begin with concordance audit, then robustness and stability checks.",This notebook,pass

@@ -1,0 +1,2 @@
+"candidate_columns_found","selected_condition_factor_column","n_nonmissing_all","n_nonmissing_BT1","min_all","max_all","readiness","note"
+"Kc","Kc",408,136,0.578703703703704,5.83090379008746,"available_for_formula_range_audit","Use as condition factor (K) only if Notebook 06 confirms formula and range are sound."

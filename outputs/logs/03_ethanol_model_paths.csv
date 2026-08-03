@@ -1,0 +1,15 @@
+"endpoint","model_path","n_model"
+"latency","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_latency_art.rds",136
+"first_choice_binary","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_first_choice_binary_firth.rds",135
+"time_bright","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_time_bright_art.rds",136
+"mtpc","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_mtpc_art.rds",136
+"num_changes","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_num_changes_count.rds",136
+"dist_total","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_dist_total_art.rds",136
+"mov_total","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_mov_total_art.rds",136
+"vel_mean","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_vel_mean_art.rds",136
+"stratum_pref","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_stratum_pref_art.rds",136
+"blood_sugar","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_blood_sugar_art.rds",111
+"attempts","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_attempts_count.rds",136
+"last_flux","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_last_flux_count.rds",136
+"resistance_index","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_resistance_index_art.rds",136
+"time_in_last_flux","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_model_ethanol_time_in_last_flux_art.rds",136

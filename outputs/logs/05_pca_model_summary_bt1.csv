@@ -1,0 +1,2 @@
+object,method,n_rows,n_variables,model_path,pca_role
+pca_fit,stats::prcomp on centered/scaled complete-case BT1 endpoint matrix,110,13,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/05_pca_bt1_prcomp.rds,single_full_battery_visualization_pca

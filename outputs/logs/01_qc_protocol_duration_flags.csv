@@ -1,0 +1,10 @@
+"battery","flag","flagged_n"
+"BT1","ldt_time_bright_gt_480_flag",1
+"BT1","ldt_time_bright_gt_600_flag",0
+"BT1","ntt_mov_total_gt_480_flag",0
+"BT2","ldt_time_bright_gt_480_flag",0
+"BT2","ldt_time_bright_gt_600_flag",0
+"BT2","ntt_mov_total_gt_480_flag",0
+"BT3","ldt_time_bright_gt_480_flag",0
+"BT3","ldt_time_bright_gt_600_flag",0
+"BT3","ntt_mov_total_gt_480_flag",0

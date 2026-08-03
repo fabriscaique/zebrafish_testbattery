@@ -1,0 +1,11 @@
+output_name,output_type,path,status,notes
+09_file_inventory.csv,csv,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_file_inventory.csv,generated,Inventory of files in analysis-relevant project folders.
+09_notebook_inventory.csv,csv,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_notebook_inventory.csv,generated,Presence and checksum audit for expected notebooks.
+09_expected_output_audit.csv,csv,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_expected_output_audit.csv,generated,Presence and checksum audit for expected upstream outputs.
+09_package_versions.csv,csv,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_package_versions.csv,generated,Installed package versions for analysis-relevant packages.
+09_session_info.txt,text,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_session_info.txt,generated,Full R session information.
+09_reporting_bundle_audit.csv,csv,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_reporting_bundle_audit.csv,generated,Presence audit for reporting bundle files.
+09_reporting_manifest_summary.csv,csv,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_reporting_manifest_summary.csv,generated,Summary of generated/skipped Notebook 07 outputs.
+09_methods_text_audit.csv,csv,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_methods_text_audit.csv,generated,Presence and wording audit for Methods text files.
+09_claim_source_map.csv,csv,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_claim_source_map.csv,generated,Claim-source map for manuscript traceability.
+09_readme_execution_summary.md,markdown,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reproducibility/09_readme_execution_summary.md,generated,README-ready execution and audit summary.

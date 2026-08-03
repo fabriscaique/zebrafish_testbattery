@@ -1,0 +1,7 @@
+"package","available","role"
+"ARTool",TRUE,"Aligned-rank factorial models for non-normal continuous or bounded endpoints."
+"car",TRUE,"Type-III ANOVA fallback for linear models."
+"emmeans",TRUE,"Estimated marginal means and post-hoc contrasts when justified."
+"MASS",TRUE,"Negative-binomial models for overdispersed counts."
+"logistf",TRUE,"Firth logistic regression for sparse binary endpoints."
+"broom",TRUE,"Optional model tidying."

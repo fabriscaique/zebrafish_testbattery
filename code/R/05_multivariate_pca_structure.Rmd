@@ -1,0 +1,1088 @@
+---
+title: "05 Multivariate PCA Structure"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE
+)
+
+required_packages <- c("readr", "dplyr", "tidyr", "purrr", "knitr", "tibble")
+
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    stop("Required package is not installed: ", pkg)
+  }
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}
+
+has_ggplot2 <- requireNamespace("ggplot2", quietly = TRUE)
+if (has_ggplot2) suppressPackageStartupMessages(library(ggplot2))
+
+ALPHA <- 0.05
+CORRELATION_REDUNDANCY_THRESHOLD <- 0.95
+LOADING_INTERPRETATION_THRESHOLD <- 0.35
+MIN_COMPLETE_ROWS <- 30
+COMPONENTS_TO_INTERPRET <- 3
+```
+
+# Question
+
+Can one BT1 full-battery PCA visualize the multivariate structure among behavioral, endurance, physiological, and condition-factor endpoints?
+
+# Why this notebook exists
+
+Notebooks 03 and 04 test endpoint-level ethanol effects and battery-context effects. This notebook does not repeat those tests. It runs one PCA on the BT1 full-battery endpoint set and uses the result as an exploratory visualization of cross-domain structure.
+
+The PCA is restricted to BT1 because BT1 contains the complete sequence of light-dark, novel-tank, endurance, physiology, and condition-factor information for the same fish. The notebook does not compare BT1 against BT2 or BT3.
+
+# What this notebook does
+
+This notebook:
+
+1. loads the audited BT1 dataset and the endpoint registry outputs;
+2. resolves the agreed PCA endpoint set from available column names;
+3. audits first-choice coding and condition factor availability;
+4. builds one complete-case, centered, scaled PCA matrix;
+5. runs one `stats::prcomp()` PCA;
+6. interprets components from loadings/charges after the PCA is run;
+7. exports PCA scores, loadings, component labels, figures, and a notebook conclusion for Notebook 06.
+
+# What this notebook does not do
+
+This notebook does not create a behavioral-only PCA, does not run a competing PCA, does not use PCA as the primary test of ethanol effects, and does not assign PC1/PC2/PC3 biological labels before checking loadings. PC-score summaries are descriptive annotations of the PCA space, not replacement endpoint models.
+
+# 05.1 Paths, helpers, and inputs
+
+```{r paths-and-helpers}
+find_project_root <- function(start = getwd(), max_depth = 8) {
+  current <- normalizePath(start, winslash = "/", mustWork = TRUE)
+  for (i in seq_len(max_depth)) {
+    if (dir.exists(file.path(current, "data_processed"))) return(current)
+    parent <- dirname(current)
+    if (identical(parent, current)) break
+    current <- parent
+  }
+  getwd()
+}
+
+project_root <- find_project_root()
+
+paths <- list(
+  root = project_root,
+  data_processed = file.path(project_root, "data_processed"),
+  outputs_logs = file.path(project_root, "outputs", "logs"),
+  outputs_tables = file.path(project_root, "outputs", "tables"),
+  outputs_models = file.path(project_root, "outputs", "models"),
+  outputs_figures = file.path(project_root, "outputs", "figures")
+)
+
+for (p in c(paths$outputs_logs, paths$outputs_tables, paths$outputs_models, paths$outputs_figures)) {
+  dir.create(p, recursive = TRUE, showWarnings = FALSE)
+}
+
+read_csv_required <- function(path) {
+  if (!file.exists(path)) stop("Required file not found: ", path)
+  readr::read_csv(path, show_col_types = FALSE)
+}
+
+read_csv_optional <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  readr::read_csv(path, show_col_types = FALSE)
+}
+
+write_table <- function(df, filename, folder = paths$outputs_tables) {
+  path <- file.path(folder, filename)
+  readr::write_csv(df, path)
+  path
+}
+
+write_log <- function(df, filename) {
+  path <- file.path(paths$outputs_logs, filename)
+  readr::write_csv(df, path)
+  path
+}
+
+save_model_object <- function(object, filename) {
+  path <- file.path(paths$outputs_models, filename)
+  saveRDS(object, path)
+  path
+}
+
+safe_numeric <- function(x) {
+  if (is.numeric(x)) return(as.numeric(x))
+  suppressWarnings(as.numeric(as.character(x)))
+}
+
+as_bool <- function(x) {
+  if (is.logical(x)) return(x)
+  if (is.numeric(x)) return(x == 1)
+  tolower(trimws(as.character(x))) %in% c("true", "t", "1", "yes", "y")
+}
+
+standardize_exposure <- function(x) {
+  y <- trimws(as.character(x))
+  y <- ifelse(
+    y %in% c("1", "1h", "1H", "01h"),
+    "1h",
+    ifelse(y %in% c("24", "24h", "24H"), "24h", ifelse(y %in% c("96", "96h", "96H"), "96h", y))
+  )
+  factor(y, levels = c("1h", "24h", "96h"))
+}
+
+standardize_factors <- function(df) {
+  if ("treatment" %in% names(df)) {
+    treatment_chr <- gsub(",", ".", trimws(as.character(df$treatment)))
+    df$treatment <- factor(treatment_chr, levels = c("0", "0.5", "1"))
+  }
+
+  if ("exposure" %in% names(df)) {
+    df$exposure <- standardize_exposure(df$exposure)
+  }
+
+  if ("battery" %in% names(df)) {
+    df$battery <- factor(as.character(df$battery), levels = c("BT1", "BT2", "BT3"))
+  }
+
+  df
+}
+
+apply_global_exclusions <- function(df) {
+  if ("global_exclusion_flag" %in% names(df)) {
+    df <- df[!as_bool(df$global_exclusion_flag), , drop = FALSE]
+  }
+  df
+}
+
+first_existing_name <- function(names_vector, candidates) {
+  candidates <- candidates[!is.na(candidates) & candidates != ""]
+  hit <- candidates[candidates %in% names_vector]
+  if (length(hit) == 0) return(NA_character_)
+  hit[1]
+}
+
+resolve_candidates <- function(candidates_string) {
+  unlist(strsplit(candidates_string, "\\|"))
+}
+
+coalesce_numeric_columns <- function(df, candidates) {
+  candidates <- candidates[candidates %in% names(df)]
+  if (length(candidates) == 0) return(rep(NA_real_, nrow(df)))
+  out <- rep(NA_real_, nrow(df))
+  for (c in candidates) {
+    x <- safe_numeric(df[[c]])
+    fill <- is.na(out) & !is.na(x)
+    out[fill] <- x[fill]
+  }
+  out
+}
+
+encode_first_choice_numeric <- function(x) {
+  if (is.numeric(x)) {
+    out <- as.numeric(x)
+    out[!out %in% c(0, 1)] <- NA_real_
+    return(out)
+  }
+
+  z <- tolower(trimws(as.character(x)))
+  dplyr::case_when(
+    z %in% c("1", "bright", "light", "claro", "lit", "white", "branco") ~ 1,
+    z %in% c("0", "dark", "escuro", "black", "preto") ~ 0,
+    TRUE ~ NA_real_
+  )
+}
+```
+
+```{r load-inputs}
+bt1_path <- file.path(paths$data_processed, "bt1_audited.csv")
+
+bt1 <- read_csv_required(bt1_path) %>%
+  apply_global_exclusions() %>%
+  standardize_factors()
+
+if (!"fish_id" %in% names(bt1)) {
+  bt1$fish_id <- paste0("BT1_row_", seq_len(nrow(bt1)))
+}
+
+endpoint_registry <- read_csv_optional(file.path(paths$outputs_logs, "02_endpoint_registry.csv"))
+pca_readiness <- read_csv_optional(file.path(paths$outputs_logs, "02_pca_readiness.csv"))
+condition_factor_readiness <- read_csv_optional(file.path(paths$outputs_logs, "02_condition_factor_readiness.csv"))
+
+bt1_structure <- tibble::tibble(
+  dataset = "BT1",
+  rows_after_global_exclusion = nrow(bt1),
+  columns = ncol(bt1),
+  unique_fish_ids = length(unique(bt1$fish_id)),
+  endpoint_registry_loaded = !is.null(endpoint_registry),
+  pca_readiness_loaded = !is.null(pca_readiness),
+  condition_factor_readiness_loaded = !is.null(condition_factor_readiness)
+)
+
+bt1_structure
+```
+
+```{r export-input-summary}
+write_log(bt1_structure, "05_bt1_pca_input_structure.csv")
+```
+
+# 05.2 Fixed PCA endpoint set
+
+The PCA endpoint set is fixed by the project structure. It includes selected endpoint-level variables from the full BT1 battery, not every raw column. Inclusion is independent of endpoint-model status.
+
+```{r fixed-pca-dictionary}
+pca_variable_dictionary <- tibble::tibble(
+  endpoint = c(
+    "dist_total",
+    "mov_total",
+    "vel_mean",
+    "stratum_pref",
+    "time_bright",
+    "first_choice_binary",
+    "latency",
+    "mtpc",
+    "num_changes",
+    "resistance_index",
+    "attempts",
+    "blood_sugar",
+    "condition_factor"
+  ),
+  domain = c(
+    "NTT locomotion",
+    "NTT locomotion",
+    "NTT locomotion",
+    "NTT spatial position",
+    "LDT phototaxis",
+    "LDT first choice",
+    "LDT decision latency",
+    "LDT transition behavior",
+    "LDT transition behavior",
+    "Endurance",
+    "Endurance",
+    "Physiology",
+    "Biometry / condition"
+  ),
+  candidate_names = c(
+    "dist_total|distance_total|total_distance",
+    "mov_total|movement_total|time_moving|movement_time",
+    "vel_mean|mean_vel|velocity_mean|mean_velocity",
+    "stratum_pref|upper_stratum|top_time|time_top|upper_time|top_prop|upper_prop",
+    "time_bright|time_light|light_time|claro_time",
+    "first_choice_binary|first_choice|choice_first|primeira_escolha",
+    "latency|latency_first_choice|first_latency",
+    "mtpc|mean_time_per_choice|mean_time_per_entry",
+    "num_changes|changes|transitions|crossings",
+    "resistance_index|irn|IRN|irn_computed",
+    "attempts|num_attempts|resistance_attempts",
+    "blood_sugar|glycemia|glicemia|glucose",
+    "Kc|Kf|kf|fulton|fulton_k|condition_factor|condition_factor_k"
+  ),
+  inclusion_rule = c(
+    rep("include_if_available_and_variable", 11),
+    "include_if_retention_acceptable",
+    "include_if_formula_or_range_audit_passes"
+  ),
+  pca_role = c(
+    rep("fixed_full_battery_endpoint", 11),
+    "conditional_supportive_physiology",
+    "conditional_condition_factor"
+  )
+)
+
+if (!is.null(pca_readiness) && all(c("variable", "domain") %in% names(pca_readiness))) {
+  pca_variable_dictionary <- pca_variable_dictionary %>%
+    dplyr::left_join(
+      pca_readiness %>%
+        dplyr::select(dplyr::any_of(c("variable", "pca_status", "resolved_variable_BT1", "available_BT1", "n_nonmissing_BT1"))) %>%
+        dplyr::rename(endpoint = variable),
+      by = "endpoint"
+    )
+}
+
+pca_variable_dictionary
+```
+
+```{r first-choice-coding}
+source_first_choice <- first_existing_name(names(bt1), c("first_choice_binary", "first_choice", "choice_first", "primeira_escolha"))
+
+if (!is.na(source_first_choice)) {
+  bt1$first_choice_binary <- encode_first_choice_numeric(bt1[[source_first_choice]])
+}
+
+first_choice_coding_audit <- if ("first_choice_binary" %in% names(bt1)) {
+  x <- safe_numeric(bt1$first_choice_binary)
+  tibble::tibble(
+    source_variable = source_first_choice,
+    category = c("0_dark", "1_bright", "missing_or_ambiguous"),
+    n = c(
+      sum(x == 0, na.rm = TRUE),
+      sum(x == 1, na.rm = TRUE),
+      sum(is.na(x))
+    )
+  )
+} else {
+  tibble::tibble(
+    source_variable = NA_character_,
+    category = "first_choice_binary_not_available",
+    n = nrow(bt1)
+  )
+}
+
+first_choice_coding_audit
+```
+
+```{r export-first-choice-coding}
+write_log(first_choice_coding_audit, "05_pca_first_choice_coding_audit.csv")
+```
+
+# 05.3 Condition factor audit
+
+Kc, Kf, and condition factor are treated as the same operational construct if the values are numerically usable and consistent with a Fulton-type weight-length condition index. This notebook does not rename the biological construct for the manuscript; it reports it as condition factor (K).
+
+```{r condition-factor-audit}
+condition_candidates <- resolve_candidates("Kc|Kf|kf|fulton|fulton_k|condition_factor|condition_factor_k")
+condition_source <- first_existing_name(names(bt1), condition_candidates)
+
+condition_factor_audit <- tibble::tibble(
+  condition_source = condition_source,
+  present = !is.na(condition_source),
+  n_nonmissing = if (!is.na(condition_source)) sum(!is.na(safe_numeric(bt1[[condition_source]]))) else 0L,
+  min_value = if (!is.na(condition_source)) min(safe_numeric(bt1[[condition_source]]), na.rm = TRUE) else NA_real_,
+  max_value = if (!is.na(condition_source)) max(safe_numeric(bt1[[condition_source]]), na.rm = TRUE) else NA_real_,
+  variance = if (!is.na(condition_source)) stats::var(safe_numeric(bt1[[condition_source]]), na.rm = TRUE) else NA_real_
+) %>%
+  dplyr::mutate(
+    finite_range = is.finite(min_value) & is.finite(max_value),
+    variable_values = present & n_nonmissing >= 2 & is.finite(variance) & variance > 0,
+    range_flag = dplyr::case_when(
+      !present ~ "not_available",
+      !variable_values ~ "not_variable_or_insufficient_nonmissing",
+      finite_range & min_value > 0 & max_value < 100 ~ "range_plausible_for_scaled_condition_factor",
+      TRUE ~ "range_requires_notebook06_review"
+    ),
+    include_condition_factor_candidate = variable_values
+  )
+
+if (!is.na(condition_source)) {
+  bt1$condition_factor <- safe_numeric(bt1[[condition_source]])
+}
+
+condition_factor_audit
+```
+
+```{r export-condition-factor-audit}
+write_log(condition_factor_audit, "05_condition_factor_pca_audit.csv")
+```
+
+# 05.4 Resolve and screen PCA variables
+
+```{r build-pca-candidate-table}
+pca_candidate_table <- pca_variable_dictionary %>%
+  dplyr::mutate(
+    resolved_source = purrr::map_chr(candidate_names, ~first_existing_name(names(bt1), resolve_candidates(.x))),
+    present_in_bt1 = !is.na(resolved_source)
+  )
+
+pca_candidate_table
+```
+
+```{r prepare-numeric-pca-input}
+pca_numeric_raw <- data.frame(fish_id = bt1$fish_id, stringsAsFactors = FALSE)
+
+for (i in seq_len(nrow(pca_variable_dictionary))) {
+  endpoint <- pca_variable_dictionary$endpoint[i]
+  candidates <- resolve_candidates(pca_variable_dictionary$candidate_names[i])
+
+  if (endpoint == "first_choice_binary") {
+    pca_numeric_raw[[endpoint]] <- if ("first_choice_binary" %in% names(bt1)) encode_first_choice_numeric(bt1$first_choice_binary) else NA_real_
+  } else if (endpoint == "condition_factor") {
+    pca_numeric_raw[[endpoint]] <- if ("condition_factor" %in% names(bt1)) safe_numeric(bt1$condition_factor) else coalesce_numeric_columns(bt1, candidates)
+  } else {
+    pca_numeric_raw[[endpoint]] <- coalesce_numeric_columns(bt1, candidates)
+  }
+}
+
+pca_variable_audit <- purrr::map_dfr(pca_variable_dictionary$endpoint, function(endpoint) {
+  x <- pca_numeric_raw[[endpoint]]
+  tibble::tibble(
+    endpoint = endpoint,
+    n_total = length(x),
+    n_nonmissing = sum(!is.na(x)),
+    missing_pct = round(mean(is.na(x)) * 100, 2),
+    variance = stats::var(x, na.rm = TRUE),
+    unique_nonmissing = length(unique(x[!is.na(x)])),
+    finite_nonmissing = sum(is.finite(x)),
+    initially_eligible = sum(!is.na(x)) >= 2 && length(unique(x[!is.na(x)])) >= 2 && is.finite(stats::var(x, na.rm = TRUE)) && stats::var(x, na.rm = TRUE) > 0
+  )
+}) %>%
+  dplyr::left_join(pca_variable_dictionary, by = "endpoint") %>%
+  dplyr::left_join(pca_candidate_table[, c("endpoint", "resolved_source", "present_in_bt1")], by = "endpoint")
+
+pca_variable_audit
+```
+
+```{r export-pca-screen}
+write_table(pca_candidate_table, "05_pca_candidate_variable_audit_bt1.csv")
+write_log(pca_candidate_table, "05_pca_candidate_variable_audit_bt1.csv")
+write_table(pca_variable_audit, "05_pca_variable_screen_bt1.csv")
+write_log(pca_variable_audit, "05_pca_variable_screen_bt1.csv")
+```
+
+# 05.5 Build complete-case PCA matrix
+
+The PCA uses complete cases after variables are resolved. Conditional supportive variables are included only if they do not collapse the retained sample below the minimum complete-case threshold. Fixed full-battery endpoints are not removed to make the PCA look cleaner; if they fail availability or variance checks, the reason is logged.
+
+```{r pca-variable-selection}
+fixed_candidates <- pca_variable_audit %>%
+  dplyr::filter(pca_role == "fixed_full_battery_endpoint", initially_eligible) %>%
+  dplyr::pull(endpoint)
+
+conditional_candidates <- pca_variable_audit %>%
+  dplyr::filter(pca_role != "fixed_full_battery_endpoint", initially_eligible) %>%
+  dplyr::pull(endpoint)
+
+selected_variables <- c(fixed_candidates, conditional_candidates)
+
+if (length(fixed_candidates) < 2) {
+  stop("Fewer than two fixed full-battery PCA variables were eligible. Inspect Notebook 01/02 outputs before continuing.")
+}
+
+selection_steps <- list()
+selection_steps[[1]] <- tibble::tibble(
+  step = 1,
+  action = "initial_selection",
+  variables = paste(selected_variables, collapse = ", "),
+  n_variables = length(selected_variables),
+  n_complete_rows = sum(stats::complete.cases(pca_numeric_raw[, selected_variables, drop = FALSE])),
+  note = "All eligible fixed endpoints plus eligible conditional supportive variables."
+)
+
+current_variables <- selected_variables
+n_complete_current <- sum(stats::complete.cases(pca_numeric_raw[, current_variables, drop = FALSE]))
+step_id <- 2
+
+while (n_complete_current < MIN_COMPLETE_ROWS && length(intersect(current_variables, conditional_candidates)) > 0) {
+  conditional_in_current <- intersect(current_variables, conditional_candidates)
+  missing_rates <- colMeans(is.na(pca_numeric_raw[, conditional_in_current, drop = FALSE]))
+  drop_var <- names(sort(missing_rates, decreasing = TRUE))[1]
+  current_variables <- setdiff(current_variables, drop_var)
+  n_complete_current <- sum(stats::complete.cases(pca_numeric_raw[, current_variables, drop = FALSE]))
+
+  selection_steps[[step_id]] <- tibble::tibble(
+    step = step_id,
+    action = paste0("drop_conditional_variable_", drop_var),
+    variables = paste(current_variables, collapse = ", "),
+    n_variables = length(current_variables),
+    n_complete_rows = n_complete_current,
+    note = "Conditional supportive variable removed because complete-case retention was below threshold."
+  )
+  step_id <- step_id + 1
+}
+
+if (n_complete_current < MIN_COMPLETE_ROWS) {
+  stop("Complete-case PCA matrix remains below MIN_COMPLETE_ROWS after conditional-variable handling. Inspect missingness before continuing.")
+}
+
+pca_complete_case_flag <- stats::complete.cases(pca_numeric_raw[, current_variables, drop = FALSE])
+pca_dataset <- pca_numeric_raw[pca_complete_case_flag, c("fish_id", current_variables), drop = FALSE]
+
+metadata_cols <- intersect(c("fish_id", "treatment", "exposure", "battery"), names(bt1))
+bt1_metadata <- bt1[pca_complete_case_flag, metadata_cols, drop = FALSE]
+if (!"fish_id" %in% names(bt1_metadata)) bt1_metadata$fish_id <- pca_dataset$fish_id
+
+pca_variable_selection_log <- dplyr::bind_rows(selection_steps)
+
+pca_missingness_decision <- tibble::tibble(
+  decision = "complete_case_single_full_battery_pca_no_imputation",
+  min_complete_rows = MIN_COMPLETE_ROWS,
+  fixed_eligible_variables = paste(fixed_candidates, collapse = ", "),
+  conditional_eligible_variables = paste(conditional_candidates, collapse = ", "),
+  final_variables = paste(current_variables, collapse = ", "),
+  final_n_variables = length(current_variables),
+  final_complete_rows = nrow(pca_dataset),
+  note = "One PCA is run. Conditional supportive variables are included only when retained sample size remains acceptable."
+)
+
+pca_variable_selection_log
+pca_missingness_decision
+```
+
+```{r export-pca-selection}
+write_table(pca_variable_selection_log, "05_pca_variable_selection_log_bt1.csv")
+write_log(pca_variable_selection_log, "05_pca_variable_selection_log_bt1.csv")
+write_table(pca_missingness_decision, "05_pca_missingness_decision_bt1.csv")
+write_log(pca_missingness_decision, "05_pca_missingness_decision_bt1.csv")
+write_table(pca_dataset, "05_pca_analysis_dataset_bt1.csv")
+```
+
+# 05.6 Correlation and scaling diagnostics
+
+```{r correlation-diagnostics}
+pca_numeric <- pca_dataset[, current_variables, drop = FALSE]
+correlation_matrix <- stats::cor(pca_numeric, use = "pairwise.complete.obs")
+
+correlation_pairs <- as.data.frame(as.table(correlation_matrix), stringsAsFactors = FALSE) %>%
+  dplyr::rename(var1 = Var1, var2 = Var2, correlation = Freq) %>%
+  dplyr::filter(as.character(var1) < as.character(var2)) %>%
+  dplyr::mutate(abs_correlation = abs(correlation)) %>%
+  dplyr::arrange(dplyr::desc(abs_correlation))
+
+high_redundancy_pairs <- correlation_pairs %>%
+  dplyr::filter(abs_correlation >= CORRELATION_REDUNDANCY_THRESHOLD)
+
+mean_abs_offdiag_correlation <- mean(abs(correlation_matrix[upper.tri(correlation_matrix)]), na.rm = TRUE)
+
+correlation_diagnostic <- tibble::tibble(
+  n_variables = length(current_variables),
+  n_complete_rows = nrow(pca_dataset),
+  mean_abs_offdiag_correlation = round(mean_abs_offdiag_correlation, 3),
+  high_redundancy_pairs_n = nrow(high_redundancy_pairs),
+  note = dplyr::case_when(
+    mean_abs_offdiag_correlation < 0.20 ~ "Low average correlation; PCA should be read as exploratory visualization only.",
+    mean_abs_offdiag_correlation < 0.35 ~ "Moderate-low average correlation; PCA can summarize structure but should not be overinterpreted.",
+    TRUE ~ "Correlation structure supports exploratory PCA visualization."
+  )
+)
+
+correlation_diagnostic
+high_redundancy_pairs
+```
+
+```{r scaling}
+pca_scaled_matrix <- scale(pca_numeric)
+
+scaling_summary <- tibble::tibble(
+  endpoint = current_variables,
+  original_mean = purrr::map_dbl(current_variables, ~mean(pca_numeric[[.x]], na.rm = TRUE)),
+  original_sd = purrr::map_dbl(current_variables, ~stats::sd(pca_numeric[[.x]], na.rm = TRUE)),
+  scaled_mean = colMeans(pca_scaled_matrix, na.rm = TRUE),
+  scaled_sd = apply(pca_scaled_matrix, 2, stats::sd, na.rm = TRUE)
+)
+
+scaling_summary
+```
+
+```{r export-correlation-scaling}
+write_table(as.data.frame(correlation_matrix), "05_pca_correlation_matrix_bt1.csv")
+write_table(correlation_pairs, "05_pca_correlation_pairs_bt1.csv")
+write_table(high_redundancy_pairs, "05_pca_high_redundancy_pairs_bt1.csv")
+write_log(correlation_diagnostic, "05_pca_correlation_diagnostic_bt1.csv")
+write_table(scaling_summary, "05_pca_scaling_summary_bt1.csv")
+write_table(as.data.frame(pca_scaled_matrix), "05_pca_scaled_matrix_bt1.csv")
+```
+
+```{r correlation-heatmap, fig.width=8, fig.height=6}
+if (has_ggplot2) {
+  cor_long <- as.data.frame(as.table(correlation_matrix), stringsAsFactors = FALSE) %>%
+    dplyr::rename(var1 = Var1, var2 = Var2, correlation = Freq)
+
+  heatmap_plot <- ggplot2::ggplot(cor_long, ggplot2::aes(x = var1, y = var2, fill = correlation)) +
+    ggplot2::geom_tile() +
+    ggplot2::coord_equal() +
+    ggplot2::labs(title = "BT1 PCA correlation matrix", x = NULL, y = NULL) +
+    ggplot2::theme_classic(base_size = 11) +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
+
+  print(heatmap_plot)
+  ggplot2::ggsave(file.path(paths$outputs_figures, "05_pca_correlation_heatmap_bt1.png"), heatmap_plot, width = 8, height = 6, dpi = 300)
+} else {
+  print("Correlation heatmap skipped because ggplot2 is unavailable.")
+}
+```
+
+# 05.7 Run the single PCA
+
+```{r run-pca}
+pca_fit <- stats::prcomp(pca_scaled_matrix, center = FALSE, scale. = FALSE)
+
+model_path <- save_model_object(pca_fit, "05_pca_bt1_prcomp.rds")
+
+eigenvalues <- pca_fit$sdev^2
+prop_var <- eigenvalues / sum(eigenvalues)
+cum_var <- cumsum(prop_var)
+
+compute_elbow_component <- function(values) {
+  if (length(values) <= 2) return(1L)
+  x <- seq_along(values)
+  y <- values
+  x1 <- x[1]; y1 <- y[1]
+  x2 <- x[length(x)]; y2 <- y[length(y)]
+  distances <- abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1) / sqrt((y2 - y1)^2 + (x2 - x1)^2)
+  as.integer(which.max(distances))
+}
+
+n_kaiser <- max(sum(eigenvalues > 1), 1)
+n_cum70 <- which(cum_var >= 0.70)[1]
+n_elbow <- compute_elbow_component(eigenvalues)
+n_components_interpreted <- min(COMPONENTS_TO_INTERPRET, length(eigenvalues))
+
+retention_table <- tibble::tibble(
+  component = paste0("PC", seq_along(eigenvalues)),
+  component_number = seq_along(eigenvalues),
+  eigenvalue = eigenvalues,
+  variance_explained = prop_var,
+  cumulative_variance = cum_var,
+  kaiser_gt_1 = eigenvalues > 1,
+  elbow_component = seq_along(eigenvalues) == n_elbow,
+  interpreted_in_notebook = seq_along(eigenvalues) <= n_components_interpreted
+)
+
+retention_decision <- tibble::tibble(
+  n_variables = length(current_variables),
+  n_complete_rows = nrow(pca_dataset),
+  n_kaiser_components = n_kaiser,
+  n_cumulative_70_components = n_cum70,
+  elbow_component = n_elbow,
+  n_components_interpreted = n_components_interpreted,
+  inference_rule = "One PCA is run for visualization. Component labels are assigned from loadings after PCA; PCA is not the primary ethanol-effect test."
+)
+
+pca_model_summary <- tibble::tibble(
+  object = "pca_fit",
+  method = "stats::prcomp on centered/scaled complete-case BT1 endpoint matrix",
+  n_rows = nrow(pca_dataset),
+  n_variables = length(current_variables),
+  model_path = model_path,
+  pca_role = "single_full_battery_visualization_pca"
+)
+
+retention_table
+retention_decision
+pca_model_summary
+```
+
+```{r export-pca-model}
+write_table(retention_table, "05_pca_eigenvalues_retention_bt1.csv")
+write_log(retention_decision, "05_pca_retention_decision_bt1.csv")
+write_log(pca_model_summary, "05_pca_model_summary_bt1.csv")
+```
+
+```{r scree-plot, fig.width=7, fig.height=5}
+if (has_ggplot2) {
+  scree_plot <- ggplot2::ggplot(retention_table, ggplot2::aes(x = component_number, y = eigenvalue)) +
+    ggplot2::geom_line() +
+    ggplot2::geom_point() +
+    ggplot2::geom_vline(xintercept = n_elbow, linetype = "dashed") +
+    ggplot2::labs(title = "BT1 PCA scree plot", x = "Principal component", y = "Eigenvalue") +
+    ggplot2::theme_classic(base_size = 12)
+  print(scree_plot)
+  ggplot2::ggsave(file.path(paths$outputs_figures, "05_pca_scree_bt1.png"), scree_plot, width = 7, height = 5, dpi = 300)
+} else {
+  print("Scree plot skipped because ggplot2 is unavailable.")
+}
+```
+
+# 05.8 Interpret PCA loadings/charges
+
+```{r loadings-interpretation}
+loadings_wide <- as.data.frame(pca_fit$rotation)
+loadings_wide$endpoint <- rownames(loadings_wide)
+loadings_wide <- loadings_wide[, c("endpoint", setdiff(names(loadings_wide), "endpoint"))]
+
+component_cols <- grep("^PC", names(loadings_wide), value = TRUE)
+component_cols_to_interpret <- component_cols[seq_len(min(n_components_interpreted, length(component_cols)))]
+
+loadings_long <- loadings_wide %>%
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(component_cols),
+    names_to = "component",
+    values_to = "loading"
+  ) %>%
+  dplyr::mutate(abs_loading = abs(loading)) %>%
+  dplyr::left_join(pca_variable_dictionary[, c("endpoint", "domain", "pca_role")], by = "endpoint") %>%
+  dplyr::arrange(component, dplyr::desc(abs_loading))
+
+domain_label_from_loadings <- function(pc, loadings_df, threshold = LOADING_INTERPRETATION_THRESHOLD) {
+  top <- loadings_df %>%
+    dplyr::filter(component == pc, abs_loading >= threshold) %>%
+    dplyr::arrange(dplyr::desc(abs_loading))
+
+  if (nrow(top) == 0) return("mixed_low_loading_structure")
+
+  domain_counts <- top %>%
+    dplyr::count(domain, sort = TRUE)
+
+  dominant_domain <- domain_counts$domain[1]
+  dominant_n <- domain_counts$n[1]
+  competing_n <- ifelse(nrow(domain_counts) > 1, domain_counts$n[2], 0)
+
+  if (dominant_n < 2 || dominant_n == competing_n) return("mixed_cross_domain_structure")
+
+  dplyr::case_when(
+    dominant_domain == "NTT locomotion" ~ "locomotor_output_structure",
+    dominant_domain == "NTT spatial position" ~ "vertical_position_structure",
+    dominant_domain == "LDT phototaxis" ~ "phototaxis_light_dark_structure",
+    dominant_domain == "LDT first choice" ~ "first_choice_structure",
+    dominant_domain == "LDT decision latency" ~ "decision_latency_structure",
+    dominant_domain == "LDT transition behavior" ~ "transition_behavior_structure",
+    dominant_domain == "Endurance" ~ "endurance_performance_structure",
+    dominant_domain == "Physiology" ~ "physiological_structure",
+    dominant_domain == "Biometry / condition" ~ "condition_factor_structure",
+    TRUE ~ "mixed_cross_domain_structure"
+  )
+}
+
+component_interpretation <- purrr::map_dfr(component_cols_to_interpret, function(pc) {
+  pc_number <- as.integer(gsub("PC", "", pc))
+  top <- loadings_long %>%
+    dplyr::filter(component == pc) %>%
+    dplyr::arrange(dplyr::desc(abs_loading)) %>%
+    utils::head(6)
+
+  tibble::tibble(
+    component = pc,
+    component_number = pc_number,
+    variance_explained = prop_var[pc_number],
+    cumulative_variance = cum_var[pc_number],
+    top_loading_endpoints = paste(top$endpoint, collapse = ", "),
+    top_loading_domains = paste(unique(top$domain), collapse = ", "),
+    loading_based_label = domain_label_from_loadings(pc, loadings_long),
+    interpretation_rule = "Label assigned after checking loadings; mixed components remain mixed."
+  )
+})
+
+component_interpretation
+```
+
+```{r export-loadings}
+write_table(loadings_wide, "05_pca_loadings_wide_bt1.csv")
+write_table(loadings_long, "05_pca_loadings_long_bt1.csv")
+write_table(component_interpretation, "05_pca_component_interpretation_bt1.csv")
+```
+
+# 05.9 Scores and descriptive centroids
+
+Scores and centroids are used only to annotate the PCA visualization. They are not treated as the primary ethanol-effect analysis.
+
+```{r scores-and-centroids}
+pc_scores <- as.data.frame(pca_fit$x)
+pc_scores$fish_id <- pca_dataset$fish_id
+
+pc_score_dataset <- bt1_metadata %>%
+  dplyr::left_join(pc_scores, by = "fish_id")
+
+score_cols <- grep("^PC", names(pc_score_dataset), value = TRUE)
+score_cols_to_summarize <- score_cols[seq_len(min(n_components_interpreted, length(score_cols)))]
+
+pc_score_summary <- pc_score_dataset %>%
+  dplyr::group_by(treatment, exposure) %>%
+  dplyr::summarise(
+    dplyr::across(
+      dplyr::all_of(score_cols_to_summarize),
+      list(n = ~sum(!is.na(.x)), mean = ~mean(.x, na.rm = TRUE), sd = ~stats::sd(.x, na.rm = TRUE)),
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  )
+
+pc_score_dataset
+pc_score_summary
+```
+
+```{r export-scores}
+write_table(pc_score_dataset, "05_pca_scores_bt1.csv")
+write_table(pc_score_summary, "05_pca_score_summary_by_cell_bt1.csv")
+```
+
+# 05.10 PCA visualizations
+
+```{r plot-helpers}
+axis_label <- function(pc_number) {
+  paste0("PC", pc_number, " (", round(prop_var[pc_number] * 100, 1), "% variance)")
+}
+
+build_centroids <- function(df, pc_x, pc_y) {
+  df %>%
+    dplyr::filter(!is.na(.data[[pc_x]]), !is.na(.data[[pc_y]])) %>%
+    dplyr::group_by(treatment, exposure) %>%
+    dplyr::summarise(
+      x = mean(.data[[pc_x]], na.rm = TRUE),
+      y = mean(.data[[pc_y]], na.rm = TRUE),
+      n = dplyr::n(),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(label = paste0("EtOH ", as.character(treatment), " / ", as.character(exposure)))
+}
+
+scale_loadings_for_biplot <- function(loadings_df, score_df, pc_x, pc_y) {
+  score_range_x <- diff(range(score_df[[pc_x]], na.rm = TRUE))
+  score_range_y <- diff(range(score_df[[pc_y]], na.rm = TRUE))
+  loading_range_x <- diff(range(loadings_df[[pc_x]], na.rm = TRUE))
+  loading_range_y <- diff(range(loadings_df[[pc_y]], na.rm = TRUE))
+
+  loading_scale <- 0.75 * min(
+    score_range_x / loading_range_x,
+    score_range_y / loading_range_y
+  )
+
+  if (!is.finite(loading_scale)) loading_scale <- 1
+
+  loadings_df %>%
+    dplyr::mutate(
+      x_arrow = .data[[pc_x]] * loading_scale,
+      y_arrow = .data[[pc_y]] * loading_scale,
+      loading_label = endpoint
+    )
+}
+```
+
+```{r score-biplot-pc1-pc2, fig.width=9, fig.height=7}
+if (has_ggplot2 && all(c("PC1", "PC2") %in% names(pc_score_dataset))) {
+  score_centroids_pc12 <- build_centroids(pc_score_dataset, "PC1", "PC2")
+
+  loadings_pc12 <- loadings_wide %>%
+    dplyr::select(endpoint, PC1, PC2) %>%
+    dplyr::left_join(pca_variable_dictionary[, c("endpoint", "domain")], by = "endpoint") %>%
+    scale_loadings_for_biplot(pc_score_dataset, "PC1", "PC2")
+
+  score_plot <- ggplot2::ggplot(
+    pc_score_dataset,
+    ggplot2::aes(x = PC1, y = PC2, color = exposure, shape = treatment)
+  ) +
+    ggplot2::geom_hline(yintercept = 0, linewidth = 0.3, color = "grey70") +
+    ggplot2::geom_vline(xintercept = 0, linewidth = 0.3, color = "grey70") +
+    ggplot2::geom_point(alpha = 0.72, size = 2.4) +
+    ggplot2::geom_point(
+      data = score_centroids_pc12,
+      ggplot2::aes(x = x, y = y, color = exposure, shape = treatment),
+      size = 5.0,
+      stroke = 1.4,
+      fill = "white"
+    ) +
+    ggplot2::geom_text(
+      data = score_centroids_pc12,
+      ggplot2::aes(x = x, y = y, label = label),
+      inherit.aes = FALSE,
+      size = 3.1,
+      nudge_y = 0.25,
+      color = "black"
+    ) +
+    ggplot2::geom_segment(
+      data = loadings_pc12,
+      ggplot2::aes(x = 0, y = 0, xend = x_arrow, yend = y_arrow),
+      inherit.aes = FALSE,
+      arrow = grid::arrow(length = grid::unit(0.16, "cm")),
+      color = "grey25",
+      linewidth = 0.55,
+      alpha = 0.85
+    ) +
+    ggplot2::geom_text(
+      data = loadings_pc12,
+      ggplot2::aes(x = x_arrow, y = y_arrow, label = loading_label),
+      inherit.aes = FALSE,
+      size = 3.0,
+      color = "black",
+      check_overlap = TRUE,
+      nudge_y = 0.08
+    ) +
+    ggplot2::scale_color_brewer(palette = "Dark2") +
+    ggplot2::scale_shape_manual(values = c("0" = 16, "0.5" = 17, "1" = 15)) +
+    ggplot2::labs(
+      title = "BT1 full-battery PCA biplot",
+      subtitle = "Individual fish scores, treatment × exposure centroids, and variable loadings",
+      x = axis_label(1),
+      y = axis_label(2),
+      color = "Exposure",
+      shape = "EtOH"
+    ) +
+    ggplot2::theme_classic(base_size = 12) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold"),
+      legend.position = "right"
+    )
+
+  print(score_plot)
+  ggplot2::ggsave(file.path(paths$outputs_figures, "05_pca_biplot_pc1_pc2_bt1.png"), score_plot, width = 9, height = 7, dpi = 300)
+} else {
+  print("PC1/PC2 biplot skipped because ggplot2 is unavailable or PCA has fewer than two components.")
+}
+```
+
+```{r score-plot-pc1-pc3, fig.width=9, fig.height=7}
+if (has_ggplot2 && all(c("PC1", "PC3") %in% names(pc_score_dataset))) {
+  score_centroids_pc13 <- build_centroids(pc_score_dataset, "PC1", "PC3")
+
+  score_plot_pc13 <- ggplot2::ggplot(
+    pc_score_dataset,
+    ggplot2::aes(x = PC1, y = PC3, color = exposure, shape = treatment)
+  ) +
+    ggplot2::geom_hline(yintercept = 0, linewidth = 0.3, color = "grey70") +
+    ggplot2::geom_vline(xintercept = 0, linewidth = 0.3, color = "grey70") +
+    ggplot2::geom_point(alpha = 0.72, size = 2.4) +
+    ggplot2::geom_point(
+      data = score_centroids_pc13,
+      ggplot2::aes(x = x, y = y, color = exposure, shape = treatment),
+      size = 5.0,
+      stroke = 1.4,
+      fill = "white"
+    ) +
+    ggplot2::geom_text(
+      data = score_centroids_pc13,
+      ggplot2::aes(x = x, y = y, label = label),
+      inherit.aes = FALSE,
+      size = 3.1,
+      nudge_y = 0.25,
+      color = "black"
+    ) +
+    ggplot2::scale_color_brewer(palette = "Dark2") +
+    ggplot2::scale_shape_manual(values = c("0" = 16, "0.5" = 17, "1" = 15)) +
+    ggplot2::labs(
+      title = "BT1 full-battery PCA scores: PC1 vs PC3",
+      subtitle = "Third-component view; the PC3 label is determined by loadings, not assigned in advance",
+      x = axis_label(1),
+      y = axis_label(3),
+      color = "Exposure",
+      shape = "EtOH"
+    ) +
+    ggplot2::theme_classic(base_size = 12) +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"))
+
+  print(score_plot_pc13)
+  ggplot2::ggsave(file.path(paths$outputs_figures, "05_pca_scores_pc1_pc3_bt1.png"), score_plot_pc13, width = 9, height = 7, dpi = 300)
+} else {
+  print("PC1/PC3 plot skipped because ggplot2 is unavailable or PCA has fewer than three components.")
+}
+```
+
+```{r faceted-score-plot, fig.width=9, fig.height=6}
+if (has_ggplot2 && all(c("PC1", "PC2") %in% names(pc_score_dataset))) {
+  score_plot_faceted <- ggplot2::ggplot(
+    pc_score_dataset,
+    ggplot2::aes(x = PC1, y = PC2, color = exposure, shape = exposure)
+  ) +
+    ggplot2::geom_hline(yintercept = 0, linewidth = 0.3, color = "grey70") +
+    ggplot2::geom_vline(xintercept = 0, linewidth = 0.3, color = "grey70") +
+    ggplot2::geom_point(alpha = 0.78, size = 2.4) +
+    ggplot2::facet_wrap(~ treatment) +
+    ggplot2::scale_color_brewer(palette = "Dark2") +
+    ggplot2::labs(
+      title = "BT1 PCA scores by ethanol concentration",
+      subtitle = "Supplementary visualization; exposure duration is encoded by color and shape",
+      x = axis_label(1),
+      y = axis_label(2),
+      color = "Exposure",
+      shape = "Exposure"
+    ) +
+    ggplot2::theme_classic(base_size = 12) +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"))
+
+  print(score_plot_faceted)
+  ggplot2::ggsave(file.path(paths$outputs_figures, "05_pca_scores_pc1_pc2_faceted_bt1.png"), score_plot_faceted, width = 9, height = 6, dpi = 300)
+} else {
+  print("Faceted PC1/PC2 score plot skipped because ggplot2 is unavailable or PCA has fewer than two components.")
+}
+```
+
+# 05.11 Bridge to endpoint models
+
+This bridge records which PCA variables are also endpoint-model candidates. It does not turn PCA into the ethanol-effect test.
+
+```{r pca-endpoint-bridge}
+model_decision_matrix <- read_csv_optional(file.path(paths$outputs_logs, "02_model_decision_matrix.csv"))
+
+pca_endpoint_bridge <- pca_variable_dictionary %>%
+  dplyr::filter(endpoint %in% current_variables) %>%
+  dplyr::mutate(included_in_pca = TRUE)
+
+if (!is.null(model_decision_matrix) && "variable" %in% names(model_decision_matrix)) {
+  pca_endpoint_bridge <- pca_endpoint_bridge %>%
+    dplyr::left_join(
+      model_decision_matrix %>%
+        dplyr::select(dplyr::any_of(c("variable", "domain", "source_test", "data_type", "model_candidate", "model_readiness", "recommended_model_family"))) %>%
+        dplyr::rename(endpoint = variable),
+      by = "endpoint",
+      suffix = c("_pca", "_model")
+    )
+}
+
+pca_endpoint_bridge
+```
+
+```{r export-bridge}
+write_table(pca_endpoint_bridge, "05_pca_endpoint_bridge_bt1.csv")
+```
+
+# 05.12 Output index and conclusion
+
+```{r final-output-index}
+pca_output_index <- tibble::tibble(
+  artifact = c(
+    "candidate_variable_audit",
+    "first_choice_coding_audit",
+    "condition_factor_audit",
+    "variable_screen",
+    "variable_selection_log",
+    "analysis_dataset",
+    "correlation_matrix",
+    "correlation_pairs",
+    "high_redundancy_pairs",
+    "scaled_matrix",
+    "eigenvalues_retention",
+    "pca_model_object",
+    "loadings_wide",
+    "loadings_long",
+    "component_interpretation",
+    "pc_scores",
+    "pc_score_summary",
+    "pca_endpoint_bridge"
+  ),
+  path = c(
+    file.path(paths$outputs_tables, "05_pca_candidate_variable_audit_bt1.csv"),
+    file.path(paths$outputs_logs, "05_pca_first_choice_coding_audit.csv"),
+    file.path(paths$outputs_logs, "05_condition_factor_pca_audit.csv"),
+    file.path(paths$outputs_tables, "05_pca_variable_screen_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_variable_selection_log_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_analysis_dataset_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_correlation_matrix_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_correlation_pairs_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_high_redundancy_pairs_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_scaled_matrix_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_eigenvalues_retention_bt1.csv"),
+    file.path(paths$outputs_models, "05_pca_bt1_prcomp.rds"),
+    file.path(paths$outputs_tables, "05_pca_loadings_wide_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_loadings_long_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_component_interpretation_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_scores_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_score_summary_by_cell_bt1.csv"),
+    file.path(paths$outputs_tables, "05_pca_endpoint_bridge_bt1.csv")
+  )
+)
+
+pca_conclusion <- tibble::tibble(
+  item = c(
+    "dataset_scope",
+    "pca_role",
+    "variable_scope",
+    "component_interpretation",
+    "pc_score_use",
+    "notebook06_need"
+  ),
+  conclusion = c(
+    "PCA was restricted to BT1 because BT1 contains the full battery in the same fish.",
+    "One PCA was run as exploratory visualization of multivariate full-battery structure.",
+    "The PCA used the agreed endpoint set after availability, variance, condition-factor, first-choice, and complete-case checks.",
+    "Component labels are assigned from loadings/charges after PCA. Mixed components remain mixed.",
+    "PC scores and centroids are descriptive annotations of PCA space, not the primary ethanol-effect test.",
+    "Notebook 06 should audit concordance, condition-factor handling, missingness decisions, and PCA stability without creating a competing PCA unless the roadmap changes."
+  )
+)
+
+pca_output_index
+pca_conclusion
+```
+
+```{r export-final-index}
+write_log(pca_output_index, "05_pca_output_index.csv")
+write_table(pca_output_index, "05_pca_output_index.csv")
+write_log(pca_conclusion, "notebook_05_conclusion.csv")
+write_table(pca_conclusion, "notebook_05_conclusion.csv")
+```

@@ -1,0 +1,4 @@
+"battery","n_rows","datetime_present","datetime_missing","parse_failed_count","min_datetime","max_datetime"
+"BT1",136,TRUE,0,0,"2020-07-21 08:52:05","2020-09-29 14:38:37"
+"BT2",139,TRUE,0,0,"2021-08-04 11:21:36","2021-12-19 15:19:54"
+"BT3",135,TRUE,135,0,NA,NA

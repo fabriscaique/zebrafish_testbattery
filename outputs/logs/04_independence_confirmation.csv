@@ -1,0 +1,5 @@
+"check","result"
+"duplicated IDs within batteries","no duplicated IDs detected"
+"BT1-vs-BT2 overlap","independent"
+"BT1-vs-BT3 overlap","independent"
+"BT2-vs-BT3 overlap","independent"

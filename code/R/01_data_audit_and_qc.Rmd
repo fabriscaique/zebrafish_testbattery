@@ -1,0 +1,1301 @@
+---
+title: "01 Data Audit and QC"
+subtitle: "Zebrafish Sequential Behavioral Battery — Data Usability Audit"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE
+)
+```
+
+# Question
+
+Are the wrangled battery-level CSVs usable for downstream endpoint registry, model-readiness, battery-comparison, and PCA notebooks?
+
+# Why this notebook exists
+
+This notebook audits the battery-level files created by `00_data_wrangling.ipynb`.
+
+It checks file availability, battery identity, fish identifiers, treatment-by-exposure cell sizes, datetime metadata, missingness, range violations, duration flags, derived-variable consistency, condition factor consistency, QC flags, and exclusion logs.
+
+This notebook does **not** run treatment-effect models, battery-effect tests, PCA, equivalence testing, or manuscript interpretation. Its output is an audited set of BT1, BT2, and BT3 datasets plus QC logs for Notebook 02.
+
+# What assumptions matter
+
+The current repository stores wrangled battery-level files in `data_processed/`:
+
+- `battery_suite_1.csv`
+- `battery_suite_2.csv`
+- `battery_suite_3.csv`
+
+Notebook 01 audits those files and writes:
+
+- `bt1_audited.csv`
+- `bt2_audited.csv`
+- `bt3_audited.csv`
+
+The endpoint registry from `00_project_setup.Rmd` is used when available. If the registry file is missing, this notebook uses a local fallback registry only for QC targeting.
+
+# What decision this supports
+
+This notebook decides whether the data can proceed to `02_endpoint_hierarchy_and_assumptions.Rmd`, which now functions as the endpoint registry and model-readiness notebook.
+
+---
+
+# 01.1 Project paths and helper functions
+
+```{r project-root}
+find_project_root <- function(start = getwd()) {
+  current <- normalizePath(start, winslash = "/", mustWork = FALSE)
+  candidates <- current
+
+  while (TRUE) {
+    parent <- dirname(tail(candidates, 1))
+    if (identical(parent, tail(candidates, 1))) break
+    candidates <- c(candidates, parent)
+  }
+
+  for (candidate in unique(candidates)) {
+    has_rproj <- length(list.files(candidate, pattern = "\\.Rproj$", full.names = TRUE)) > 0
+    has_git <- dir.exists(file.path(candidate, ".git"))
+    has_data_dirs <- dir.exists(file.path(candidate, "data_raw")) &&
+      dir.exists(file.path(candidate, "data_processed"))
+
+    if (has_rproj || has_git || has_data_dirs) {
+      return(candidate)
+    }
+  }
+
+  current
+}
+
+PROJECT_ROOT <- find_project_root()
+
+paths <- list(
+  project_root = PROJECT_ROOT,
+  data_processed = file.path(PROJECT_ROOT, "data_processed"),
+  outputs = file.path(PROJECT_ROOT, "outputs"),
+  outputs_logs = file.path(PROJECT_ROOT, "outputs", "logs"),
+  outputs_tables = file.path(PROJECT_ROOT, "outputs", "tables")
+)
+
+for (path in paths) {
+  if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+}
+
+paths
+```
+
+```{r helper-functions}
+read_csv_required <- function(path) {
+  if (!file.exists(path)) {
+    stop("Required file not found: ", path)
+  }
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+read_csv_optional <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+write_table <- function(df, filename, folder = paths$outputs_logs) {
+  path <- file.path(folder, filename)
+  write.csv(df, path, row.names = FALSE)
+  path
+}
+
+has_cols <- function(df, cols) {
+  cols[cols %in% names(df)]
+}
+
+first_existing_col <- function(df, candidates) {
+  hits <- candidates[candidates %in% names(df)]
+  if (length(hits) == 0) return(NA_character_)
+  hits[1]
+}
+
+as_bool <- function(x) {
+  if (is.logical(x)) return(x)
+  if (is.numeric(x)) return(x == 1)
+  tolower(as.character(x)) %in% c("true", "1", "yes", "y")
+}
+
+count_true <- function(x) {
+  sum(as_bool(x), na.rm = TRUE)
+}
+
+is_missing_value <- function(x) {
+  is.na(x) | trimws(as.character(x)) == ""
+}
+
+as_num <- function(x) {
+  suppressWarnings(as.numeric(x))
+}
+
+safe_min <- function(x) {
+  x <- as_num(x)
+  if (all(is.na(x))) return(NA_real_)
+  min(x, na.rm = TRUE)
+}
+
+safe_max <- function(x) {
+  x <- as_num(x)
+  if (all(is.na(x))) return(NA_real_)
+  max(x, na.rm = TRUE)
+}
+
+safe_mean <- function(x) {
+  x <- as_num(x)
+  if (all(is.na(x))) return(NA_real_)
+  mean(x, na.rm = TRUE)
+}
+
+safe_median <- function(x) {
+  x <- as_num(x)
+  if (all(is.na(x))) return(NA_real_)
+  median(x, na.rm = TRUE)
+}
+
+safe_sd <- function(x) {
+  x <- as_num(x)
+  if (sum(!is.na(x)) < 2) return(NA_real_)
+  sd(x, na.rm = TRUE)
+}
+
+safe_iqr <- function(x) {
+  x <- as_num(x)
+  if (sum(!is.na(x)) < 2) return(NA_real_)
+  IQR(x, na.rm = TRUE)
+}
+
+empty_df <- function(...) {
+  data.frame(..., stringsAsFactors = FALSE)
+}
+```
+
+---
+
+# 01.2 Load wrangled battery-level files
+
+```{r load-files}
+bt1_path <- file.path(paths$data_processed, "battery_suite_1.csv")
+bt2_path <- file.path(paths$data_processed, "battery_suite_2.csv")
+bt3_path <- file.path(paths$data_processed, "battery_suite_3.csv")
+
+bt1 <- read_csv_required(bt1_path)
+bt2 <- read_csv_required(bt2_path)
+bt3 <- read_csv_required(bt3_path)
+
+battery_data <- list(BT1 = bt1, BT2 = bt2, BT3 = bt3)
+
+wrangling_exclusion_log <- read_csv_optional(file.path(paths$outputs_logs, "wrangling_exclusion_log.csv"))
+if (is.null(wrangling_exclusion_log)) {
+  wrangling_exclusion_log <- read_csv_optional(file.path(paths$outputs_logs, "exclusion_log.csv"))
+}
+
+wrangling_qc_log <- read_csv_optional(file.path(paths$outputs_logs, "wrangling_qc_log.csv"))
+endpoint_registry <- read_csv_optional(file.path(paths$outputs_logs, "00_endpoint_registry.csv"))
+
+loaded_files <- data.frame(
+  dataset = c("BT1", "BT2", "BT3"),
+  path = c(bt1_path, bt2_path, bt3_path),
+  exists = c(file.exists(bt1_path), file.exists(bt2_path), file.exists(bt3_path)),
+  rows = c(nrow(bt1), nrow(bt2), nrow(bt3)),
+  columns = c(ncol(bt1), ncol(bt2), ncol(bt3)),
+  stringsAsFactors = FALSE
+)
+
+loaded_files
+```
+
+```{r export-loaded-files}
+write_table(loaded_files, "01_qc_loaded_files.csv")
+```
+
+---
+
+# 01.3 Battery identity
+
+Expected battery meaning:
+
+- BT1: full sequence.
+- BT2: LDT/NTT alternative or isolated context, depending on endpoint.
+- BT3: isolated endurance context.
+
+This section checks whether the files and available presence flags are compatible with those meanings.
+
+```{r battery-identity}
+presence_cols <- c("ldt_present_flag", "ntt_present_flag", "endurance_present_flag")
+
+battery_identity <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+
+    data.frame(
+      battery_file = b,
+      n_rows = nrow(df),
+      battery_values = if ("battery" %in% names(df)) paste(sort(unique(df$battery)), collapse = "; ") else NA_character_,
+      has_ldt_presence_col = "ldt_present_flag" %in% names(df),
+      has_ntt_presence_col = "ntt_present_flag" %in% names(df),
+      has_endurance_presence_col = "endurance_present_flag" %in% names(df),
+      ldt_present_count = if ("ldt_present_flag" %in% names(df)) count_true(df$ldt_present_flag) else NA_integer_,
+      ntt_present_count = if ("ntt_present_flag" %in% names(df)) count_true(df$ntt_present_flag) else NA_integer_,
+      endurance_present_count = if ("endurance_present_flag" %in% names(df)) count_true(df$endurance_present_flag) else NA_integer_,
+      expected_context = switch(
+        b,
+        BT1 = "full sequential battery",
+        BT2 = "alternative or isolated LDT/NTT context",
+        BT3 = "isolated endurance context",
+        "not specified"
+      ),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+battery_identity
+```
+
+```{r export-battery-identity}
+write_table(battery_identity, "01_qc_battery_identity.csv")
+```
+
+---
+
+# 01.4 Dimensions, schema, and variable availability
+
+```{r dimensions-schema}
+dataset_structure <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+
+    data.frame(
+      battery = b,
+      n_rows = nrow(df),
+      n_columns = ncol(df),
+      n_unique_fish_id = if ("fish_id" %in% names(df)) length(unique(df$fish_id)) else NA_integer_,
+      has_battery_column = "battery" %in% names(df),
+      has_treatment_column = "treatment" %in% names(df),
+      has_exposure_column = "exposure" %in% names(df),
+      has_datetime_column = "datetime" %in% names(df),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+all_columns <- sort(unique(unlist(lapply(battery_data, names))))
+
+schema_consistency <- data.frame(
+  column = all_columns,
+  in_BT1 = all_columns %in% names(bt1),
+  in_BT2 = all_columns %in% names(bt2),
+  in_BT3 = all_columns %in% names(bt3),
+  stringsAsFactors = FALSE
+)
+
+schema_consistency$present_in_all <- schema_consistency$in_BT1 & schema_consistency$in_BT2 & schema_consistency$in_BT3
+
+dataset_structure
+schema_consistency
+```
+
+```{r endpoint-registry-availability}
+if (is.null(endpoint_registry)) {
+  registry_variables <- c(
+    "dist_total", "mov_total", "vel_mean", "stratum_pref",
+    "time_bright", "first_choice_binary", "latency", "mtpc", "num_changes",
+    "resistance_index", "attempts", "last_flux", "time_in_last_flux",
+    "blood_sugar", "condition_factor_K", "Kc", "Kf", "wt", "ls", "sex"
+  )
+
+  endpoint_registry_local <- data.frame(
+    variable = registry_variables,
+    pca_included = ifelse(
+      registry_variables %in% c(
+        "dist_total", "mov_total", "vel_mean", "stratum_pref",
+        "time_bright", "first_choice_binary", "latency", "mtpc", "num_changes",
+        "resistance_index", "attempts", "blood_sugar", "condition_factor_K", "Kc", "Kf"
+      ),
+      "registry_or_pca_candidate",
+      "qc_or_support"
+    ),
+    stringsAsFactors = FALSE
+  )
+} else {
+  endpoint_registry_local <- endpoint_registry
+}
+
+registry_variables <- unique(endpoint_registry_local$variable)
+
+condition_aliases <- c("condition_factor_K", "Kc", "Kf", "kf", "condition_factor", "fulton_k")
+registry_variables_expanded <- unique(c(registry_variables, condition_aliases))
+
+registry_availability <- do.call(
+  rbind,
+  lapply(registry_variables_expanded, function(v) {
+    data.frame(
+      variable = v,
+      in_BT1 = v %in% names(bt1),
+      in_BT2 = v %in% names(bt2),
+      in_BT3 = v %in% names(bt3),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+registry_availability
+```
+
+```{r export-dimensions-schema}
+write_table(dataset_structure, "01_qc_dataset_structure.csv")
+write_table(schema_consistency, "01_qc_schema_consistency.csv")
+write_table(registry_availability, "01_qc_registry_variable_availability.csv")
+```
+
+---
+
+# 01.5 Fish ID integrity
+
+This section checks duplicated IDs within each battery and ID overlap between batteries.
+
+```{r fish-id-integrity}
+fish_id_integrity <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+
+    if (!"fish_id" %in% names(df)) {
+      return(data.frame(
+        battery = b,
+        n_rows = nrow(df),
+        n_unique_fish_id = NA_integer_,
+        duplicated_fish_id_count = NA_integer_,
+        missing_fish_id_count = NA_integer_,
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    fish_id <- as.character(df$fish_id)
+
+    data.frame(
+      battery = b,
+      n_rows = nrow(df),
+      n_unique_fish_id = length(unique(fish_id[!is_missing_value(fish_id)])),
+      duplicated_fish_id_count = sum(duplicated(fish_id) & !is_missing_value(fish_id)),
+      missing_fish_id_count = sum(is_missing_value(fish_id)),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+fish_ids <- lapply(battery_data, function(df) {
+  if (!"fish_id" %in% names(df)) return(character(0))
+  x <- as.character(df$fish_id)
+  unique(x[!is_missing_value(x)])
+})
+
+cross_battery_overlap <- data.frame(
+  comparison = c("BT1_vs_BT2", "BT1_vs_BT3", "BT2_vs_BT3"),
+  overlap_n = c(
+    length(intersect(fish_ids$BT1, fish_ids$BT2)),
+    length(intersect(fish_ids$BT1, fish_ids$BT3)),
+    length(intersect(fish_ids$BT2, fish_ids$BT3))
+  ),
+  stringsAsFactors = FALSE
+)
+
+fish_id_independence_flag <- all(cross_battery_overlap$overlap_n == 0)
+
+fish_id_integrity
+cross_battery_overlap
+fish_id_independence_flag
+```
+
+```{r export-fish-id-integrity}
+write_table(fish_id_integrity, "01_qc_fish_id_integrity.csv")
+write_table(cross_battery_overlap, "01_qc_cross_battery_fish_id_overlap.csv")
+```
+
+---
+
+# 01.6 Treatment by exposure cells
+
+```{r cell-counts}
+cell_counts_one <- function(df, battery_label) {
+  required <- c("treatment", "exposure")
+  if (!all(required %in% names(df))) {
+    return(data.frame(
+      battery = battery_label,
+      treatment = NA_character_,
+      exposure = NA_character_,
+      n = NA_integer_,
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  counts <- as.data.frame(table(df$treatment, df$exposure), stringsAsFactors = FALSE)
+  names(counts) <- c("treatment", "exposure", "n")
+  counts$battery <- battery_label
+  counts[, c("battery", "treatment", "exposure", "n")]
+}
+
+cell_counts <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) cell_counts_one(battery_data[[b]], b))
+)
+
+cell_counts
+```
+
+```{r export-cell-counts}
+write_table(cell_counts, "01_qc_cell_counts_treatment_by_exposure.csv")
+```
+
+---
+
+# 01.7 Datetime audit
+
+Datetime is audit metadata. It is not used here as an inferential covariate.
+
+```{r datetime-audit}
+datetime_audit <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+
+    if (!"datetime" %in% names(df)) {
+      return(data.frame(
+        battery = b,
+        n_rows = nrow(df),
+        datetime_present = FALSE,
+        datetime_missing = NA_integer_,
+        parse_failed_count = NA_integer_,
+        min_datetime = NA_character_,
+        max_datetime = NA_character_,
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    dt_raw <- df$datetime
+    dt_missing <- is_missing_value(dt_raw)
+    parsed <- suppressWarnings(as.POSIXct(dt_raw, tz = "UTC"))
+
+    parse_failed <- if ("datetime_parse_failed_flag" %in% names(df)) {
+      as_bool(df$datetime_parse_failed_flag)
+    } else {
+      is.na(parsed) & !dt_missing
+    }
+
+    data.frame(
+      battery = b,
+      n_rows = nrow(df),
+      datetime_present = TRUE,
+      datetime_missing = sum(dt_missing),
+      parse_failed_count = sum(parse_failed, na.rm = TRUE),
+      min_datetime = if (all(is.na(parsed))) NA_character_ else as.character(min(parsed, na.rm = TRUE)),
+      max_datetime = if (all(is.na(parsed))) NA_character_ else as.character(max(parsed, na.rm = TRUE)),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+datetime_audit
+```
+
+```{r datetime-by-cell}
+summarize_dates_by_cell <- function(df, battery_label) {
+  required <- c("treatment", "exposure", "datetime")
+
+  if (!all(required %in% names(df))) {
+    return(data.frame(
+      battery = battery_label,
+      treatment = NA_character_,
+      exposure = NA_character_,
+      n_rows = nrow(df),
+      n_datetime_missing = NA_integer_,
+      n_datetime_parsed = NA_integer_,
+      unique_dates = NA_character_,
+      datetime_note = "Required datetime fields not present.",
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  parsed <- suppressWarnings(as.POSIXct(df$datetime, tz = "UTC"))
+  tmp <- data.frame(
+    battery = battery_label,
+    treatment = as.character(df$treatment),
+    exposure = as.character(df$exposure),
+    date = as.Date(parsed),
+    datetime_missing = is_missing_value(df$datetime),
+    datetime_parsed = !is.na(parsed),
+    stringsAsFactors = FALSE
+  )
+
+  groups <- split(tmp, list(tmp$battery, tmp$treatment, tmp$exposure), drop = TRUE)
+
+  if (length(groups) == 0) {
+    return(data.frame(
+      battery = battery_label,
+      treatment = NA_character_,
+      exposure = NA_character_,
+      n_rows = nrow(df),
+      n_datetime_missing = sum(tmp$datetime_missing, na.rm = TRUE),
+      n_datetime_parsed = sum(tmp$datetime_parsed, na.rm = TRUE),
+      unique_dates = NA_character_,
+      datetime_note = "No treatment/exposure groups available.",
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  out <- do.call(
+    rbind,
+    lapply(groups, function(g) {
+      unique_dates <- sort(unique(g$date[!is.na(g$date)]))
+
+      data.frame(
+        battery = unique(g$battery)[1],
+        treatment = unique(g$treatment)[1],
+        exposure = unique(g$exposure)[1],
+        n_rows = nrow(g),
+        n_datetime_missing = sum(g$datetime_missing, na.rm = TRUE),
+        n_datetime_parsed = sum(g$datetime_parsed, na.rm = TRUE),
+        unique_dates = if (length(unique_dates) == 0) NA_character_ else paste(unique_dates, collapse = "; "),
+        datetime_note = if (length(unique_dates) == 0) "No parsed datetime/date available for this cell." else "Parsed date(s) available.",
+        stringsAsFactors = FALSE
+      )
+    })
+  )
+
+  rownames(out) <- NULL
+  out
+}
+
+datetime_by_cell <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) summarize_dates_by_cell(battery_data[[b]], b))
+)
+
+datetime_by_cell
+```
+
+```{r export-datetime-audit}
+write_table(datetime_audit, "01_qc_datetime_audit.csv")
+write_table(datetime_by_cell, "01_qc_datetime_by_treatment_exposure.csv")
+```
+
+---
+
+# 01.8 Missingness audit
+
+Missingness is documented. It is not automatically treated as exclusion.
+
+```{r missingness-by-variable}
+missingness_by_variable <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+
+    data.frame(
+      battery = b,
+      variable = names(df),
+      n_rows = nrow(df),
+      missing_n = vapply(df, function(x) sum(is_missing_value(x)), integer(1)),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+missingness_by_variable$missing_pct <- round(
+  100 * missingness_by_variable$missing_n / missingness_by_variable$n_rows,
+  2
+)
+
+missingness_by_variable
+```
+
+```{r missingness-by-cell}
+key_missing_fields <- unique(c(
+  registry_variables_expanded,
+  "fish_id", "battery", "treatment", "exposure", "datetime",
+  "source_file", "source_dataset", "source_row_index",
+  "wt", "lt", "ls", "weight", "length", "standard_length",
+  "conductivity", "pH", "ph", "temperature", "temp", "oxygen", "dissolved_oxygen",
+  "mov_bottom", "mov_upper", "dist_bottom", "dist_upper", "vel_bottom", "vel_upper"
+))
+
+missingness_by_cell_parts <- lapply(names(battery_data), function(b) {
+  df <- battery_data[[b]]
+  available <- has_cols(df, key_missing_fields)
+
+  if (!all(c("treatment", "exposure") %in% names(df)) || length(available) == 0) {
+    return(data.frame())
+  }
+
+  do.call(
+    rbind,
+    lapply(available, function(v) {
+      tmp <- data.frame(
+        battery = b,
+        treatment = as.character(df$treatment),
+        exposure = as.character(df$exposure),
+        variable = v,
+        missing = is_missing_value(df[[v]]),
+        stringsAsFactors = FALSE
+      )
+
+      groups <- split(tmp, list(tmp$battery, tmp$treatment, tmp$exposure, tmp$variable), drop = TRUE)
+
+      do.call(
+        rbind,
+        lapply(groups, function(g) {
+          data.frame(
+            battery = unique(g$battery)[1],
+            treatment = unique(g$treatment)[1],
+            exposure = unique(g$exposure)[1],
+            variable = unique(g$variable)[1],
+            n_rows = nrow(g),
+            missing_n = sum(g$missing, na.rm = TRUE),
+            missing_pct = round(100 * sum(g$missing, na.rm = TRUE) / nrow(g), 2),
+            stringsAsFactors = FALSE
+          )
+        })
+      )
+    })
+  )
+})
+
+missingness_by_cell <- do.call(rbind, missingness_by_cell_parts)
+
+missingness_by_cell
+```
+
+```{r export-missingness}
+write_table(missingness_by_variable, "01_qc_missingness_by_variable.csv")
+write_table(missingness_by_cell, "01_qc_missingness_by_cell.csv")
+```
+
+---
+
+# 01.9 Range and impossible-value checks
+
+These checks flag values outside plausible bounds. They do not delete data.
+
+```{r range-summary}
+numeric_candidates <- unique(c(
+  registry_variables_expanded,
+  "time_bright_prop", "irn_computed",
+  "mov_bottom", "mov_upper", "dist_bottom", "dist_upper", "vel_bottom", "vel_upper",
+  "wt", "lt", "ls", "weight", "length", "standard_length",
+  "conductivity", "pH", "ph", "temperature", "temp", "oxygen", "dissolved_oxygen"
+))
+
+numeric_candidates <- setdiff(numeric_candidates, c("fish_id", "battery", "treatment", "exposure", "datetime", "sex"))
+
+range_summary <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+    available <- has_cols(df, numeric_candidates)
+
+    if (length(available) == 0) return(data.frame())
+
+    do.call(
+      rbind,
+      lapply(available, function(v) {
+        x <- as_num(df[[v]])
+        data.frame(
+          battery = b,
+          variable = v,
+          n_nonmissing = sum(!is.na(x)),
+          min = safe_min(x),
+          median = safe_median(x),
+          mean = safe_mean(x),
+          sd = safe_sd(x),
+          iqr = safe_iqr(x),
+          max = safe_max(x),
+          negative_n = sum(x < 0, na.rm = TRUE),
+          stringsAsFactors = FALSE
+        )
+      })
+    )
+  })
+)
+
+range_summary
+```
+
+```{r bounded-range-checks}
+bounded_checks <- data.frame(
+  battery = character(),
+  variable = character(),
+  rule = character(),
+  violation_n = integer(),
+  stringsAsFactors = FALSE
+)
+
+add_bounded_check <- function(out, df, battery_label, variable, rule_label, predicate) {
+  if (!variable %in% names(df)) return(out)
+
+  x <- as_num(df[[variable]])
+  violation <- predicate(x)
+
+  rbind(
+    out,
+    data.frame(
+      battery = battery_label,
+      variable = variable,
+      rule = rule_label,
+      violation_n = sum(violation, na.rm = TRUE),
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+for (b in names(battery_data)) {
+  df <- battery_data[[b]]
+
+  bounded_checks <- add_bounded_check(
+    bounded_checks, df, b, "time_bright",
+    "time_bright should not be negative",
+    function(x) x < 0
+  )
+
+  bounded_checks <- add_bounded_check(
+    bounded_checks, df, b, "time_bright",
+    "time_bright > 480 is flagged for LDT scoring-window audit",
+    function(x) x > 480
+  )
+
+  bounded_checks <- add_bounded_check(
+    bounded_checks, df, b, "time_bright",
+    "time_bright > 600 is impossible under a 10-min LDT scoring window",
+    function(x) x > 600
+  )
+
+  bounded_checks <- add_bounded_check(
+    bounded_checks, df, b, "mov_total",
+    "mov_total > 480 is flagged for NTT scoring-window audit",
+    function(x) x > 480
+  )
+
+  bounded_checks <- add_bounded_check(
+    bounded_checks, df, b, "stratum_pref",
+    "stratum_pref must be between 0 and 100 when non-missing",
+    function(x) x < 0 | x > 100
+  )
+
+  bounded_checks <- add_bounded_check(
+    bounded_checks, df, b, "time_bright_prop",
+    "time_bright_prop must be between 0 and 1 when non-missing",
+    function(x) x < 0 | x > 1
+  )
+
+  ph_col <- first_existing_col(df, c("pH", "ph"))
+  if (!is.na(ph_col)) {
+    bounded_checks <- add_bounded_check(
+      bounded_checks, df, b, ph_col,
+      "pH values outside 0-14 are impossible",
+      function(x) x < 0 | x > 14
+    )
+  }
+}
+
+bounded_checks
+```
+
+```{r export-range-checks}
+write_table(range_summary, "01_qc_range_summary.csv")
+write_table(bounded_checks, "01_qc_bounded_range_checks.csv")
+```
+
+---
+
+# 01.10 Duration flag audit
+
+This audit summarizes duration-related flags created during wrangling and range checks.
+
+```{r duration-audit}
+duration_flags <- c(
+  "ldt_time_bright_gt_480_flag",
+  "ldt_time_bright_gt_600_flag",
+  "ntt_mov_total_gt_480_flag"
+)
+
+duration_audit <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+    available <- has_cols(df, duration_flags)
+
+    if (length(available) == 0) {
+      return(data.frame(
+        battery = b,
+        flag = NA_character_,
+        flagged_n = NA_integer_,
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    data.frame(
+      battery = b,
+      flag = available,
+      flagged_n = vapply(available, function(v) count_true(df[[v]]), integer(1)),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+duration_audit
+```
+
+```{r export-duration-audit}
+write_table(duration_audit, "01_qc_protocol_duration_flags.csv")
+```
+
+---
+
+# 01.11 Derived-variable consistency audit
+
+Derived-variable checks are diagnostic. A failed check means the definition must be reviewed; it is not an automatic exclusion.
+
+```{r derived-variable-audit}
+derived_audit <- data.frame(
+  battery = character(),
+  check = character(),
+  n_checked = integer(),
+  n_flagged = integer(),
+  max_abs_difference = numeric(),
+  note = character(),
+  stringsAsFactors = FALSE
+)
+
+add_derived_check <- function(out, battery_label, check_name, observed, expected, tolerance, note) {
+  observed <- as_num(observed)
+  expected <- as_num(expected)
+
+  ok_index <- !is.na(observed) & !is.na(expected)
+  diff <- abs(observed[ok_index] - expected[ok_index])
+
+  rbind(
+    out,
+    data.frame(
+      battery = battery_label,
+      check = check_name,
+      n_checked = sum(ok_index),
+      n_flagged = sum(diff > tolerance, na.rm = TRUE),
+      max_abs_difference = if (length(diff) == 0) NA_real_ else max(diff, na.rm = TRUE),
+      note = note,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+for (b in names(battery_data)) {
+  df <- battery_data[[b]]
+
+  if (all(c("dist_total", "mov_total", "vel_mean") %in% names(df))) {
+    dist <- as_num(df$dist_total)
+    mov <- as_num(df$mov_total)
+    expected_vel <- ifelse(!is.na(mov) & mov > 0, dist / mov, NA_real_)
+
+    derived_audit <- add_derived_check(
+      derived_audit,
+      b,
+      "vel_mean_vs_dist_total_div_mov_total",
+      df$vel_mean,
+      expected_vel,
+      tolerance = 0.05,
+      note = "Checks whether vel_mean approximates dist_total / mov_total when mov_total > 0."
+    )
+  }
+
+  if (all(c("time_bright", "num_changes", "mtpc") %in% names(df))) {
+    time_bright <- as_num(df$time_bright)
+    num_changes <- as_num(df$num_changes)
+    expected_mtpc <- ifelse(!is.na(num_changes) & num_changes > 0, time_bright / num_changes, time_bright)
+
+    derived_audit <- add_derived_check(
+      derived_audit,
+      b,
+      "mtpc_vs_time_bright_div_num_changes",
+      df$mtpc,
+      expected_mtpc,
+      tolerance = 0.05,
+      note = "Checks documented mtpc edge-case rule: if num_changes == 0, mtpc equals time_bright."
+    )
+  }
+
+  if (all(c("last_flux", "time_in_last_flux", "resistance_index") %in% names(df))) {
+    last_flux <- as_num(df$last_flux)
+    time_in_last_flux <- as_num(df$time_in_last_flux)
+
+    expected_resistance <- rep(NA_real_, nrow(df))
+    valid <- !is.na(last_flux) & !is.na(time_in_last_flux) & last_flux >= 0 & time_in_last_flux >= 0
+    expected_resistance[valid] <- vapply(which(valid), function(i) {
+      flux_sum <- sum(seq_len(max(0, as.integer(last_flux[i]) - 1)))
+      flux_sum + last_flux[i] * time_in_last_flux[i] / 60
+    }, numeric(1))
+
+    derived_audit <- add_derived_check(
+      derived_audit,
+      b,
+      "resistance_index_vs_last_flux_time_in_last_flux",
+      df$resistance_index,
+      expected_resistance,
+      tolerance = 0.05,
+      note = "Checks the documented resistance index formula."
+    )
+  }
+}
+
+derived_audit
+```
+
+```{r export-derived-audit}
+write_table(derived_audit, "01_qc_derived_variable_audit.csv")
+```
+
+---
+
+# 01.12 Condition factor audit
+
+Kc, Kf, and condition-factor columns are treated as the same operational construct only if the formula and range are sound. The expected formula is a Fulton-type condition factor:
+
+`K = 100 * weight / length^3`
+
+The exact weight and length source columns are detected from available aliases.
+
+```{r condition-factor-audit}
+condition_aliases <- c("condition_factor_K", "Kc", "Kf", "kf", "condition_factor", "fulton_k")
+weight_aliases <- c("wt", "weight", "W", "Weight")
+length_aliases <- c("ls", "standard_length", "length", "lt", "Lt", "Ls")
+
+condition_factor_audit <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+
+    k_col <- first_existing_col(df, condition_aliases)
+    w_col <- first_existing_col(df, weight_aliases)
+    l_col <- first_existing_col(df, length_aliases)
+
+    if (is.na(k_col) || is.na(w_col) || is.na(l_col)) {
+      return(data.frame(
+        battery = b,
+        condition_factor_column = k_col,
+        weight_column = w_col,
+        length_column = l_col,
+        n_checked = 0,
+        n_flagged = NA_integer_,
+        max_abs_difference = NA_real_,
+        median_condition_factor = if (!is.na(k_col)) safe_median(df[[k_col]]) else NA_real_,
+        conclusion = "Insufficient columns to audit condition factor formula.",
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    observed <- as_num(df[[k_col]])
+    weight <- as_num(df[[w_col]])
+    length <- as_num(df[[l_col]])
+    expected <- ifelse(!is.na(weight) & !is.na(length) & length > 0, 100 * weight / (length^3), NA_real_)
+    ok <- !is.na(observed) & !is.na(expected)
+    diff <- abs(observed[ok] - expected[ok])
+
+    data.frame(
+      battery = b,
+      condition_factor_column = k_col,
+      weight_column = w_col,
+      length_column = l_col,
+      n_checked = sum(ok),
+      n_flagged = sum(diff > 0.05, na.rm = TRUE),
+      max_abs_difference = if (length(diff) == 0) NA_real_ else max(diff, na.rm = TRUE),
+      median_condition_factor = safe_median(observed),
+      conclusion = if (sum(ok) == 0) {
+        "No non-missing paired values to audit."
+      } else if (sum(diff > 0.05, na.rm = TRUE) == 0) {
+        "Formula-consistent condition factor detected."
+      } else {
+        "Condition factor requires review before PCA inclusion."
+      },
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+condition_factor_audit
+```
+
+```{r export-condition-factor-audit}
+write_table(condition_factor_audit, "01_qc_condition_factor_audit.csv")
+```
+
+---
+
+# 01.13 QC flag summary
+
+```{r qc-flag-summary}
+all_flag_cols <- sort(unique(unlist(lapply(battery_data, function(df) names(df)[grepl("_flag$", names(df))]))))
+
+if (length(all_flag_cols) == 0) {
+  qc_flag_summary <- data.frame(
+    battery = names(battery_data),
+    flag = NA_character_,
+    flagged_n = NA_integer_,
+    stringsAsFactors = FALSE
+  )
+} else {
+  qc_flag_summary <- do.call(
+    rbind,
+    lapply(names(battery_data), function(b) {
+      df <- battery_data[[b]]
+      available <- has_cols(df, all_flag_cols)
+
+      if (length(available) == 0) {
+        return(data.frame(
+          battery = b,
+          flag = NA_character_,
+          flagged_n = NA_integer_,
+          stringsAsFactors = FALSE
+        ))
+      }
+
+      data.frame(
+        battery = b,
+        flag = available,
+        flagged_n = vapply(available, function(v) count_true(df[[v]]), integer(1)),
+        stringsAsFactors = FALSE
+      )
+    })
+  )
+
+  qc_flag_summary <- qc_flag_summary[order(qc_flag_summary$battery, -qc_flag_summary$flagged_n), ]
+}
+
+manual_review_summary <- do.call(
+  rbind,
+  lapply(names(battery_data), function(b) {
+    df <- battery_data[[b]]
+
+    data.frame(
+      battery = b,
+      n_rows = nrow(df),
+      manual_review_flag_n = if ("manual_review_flag" %in% names(df)) count_true(df$manual_review_flag) else NA_integer_,
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+qc_flag_summary
+manual_review_summary
+```
+
+```{r export-qc-flags}
+write_table(qc_flag_summary, "01_qc_flag_summary.csv")
+write_table(manual_review_summary, "01_qc_manual_review_summary.csv")
+```
+
+---
+
+# 01.14 Wrangling logs and exclusion log audit
+
+```{r exclusion-log-audit}
+if (is.null(wrangling_exclusion_log)) {
+  exclusion_log_audit <- data.frame(
+    item = "wrangling_exclusion_log",
+    status = "missing",
+    n_rows = NA_integer_,
+    n_columns = NA_integer_,
+    note = "No wrangling exclusion log found in outputs/logs.",
+    stringsAsFactors = FALSE
+  )
+  exclusion_summary <- data.frame()
+} else {
+  exclusion_log_audit <- data.frame(
+    item = "wrangling_exclusion_log",
+    status = "found",
+    n_rows = nrow(wrangling_exclusion_log),
+    n_columns = ncol(wrangling_exclusion_log),
+    note = "Wrangling exclusion log available for downstream traceability.",
+    stringsAsFactors = FALSE
+  )
+
+  summary_cols <- has_cols(
+    wrangling_exclusion_log,
+    c("battery", "exclusion_scope", "exclusion_type", "retained_in_processed_dataset", "is_global_exclusion")
+  )
+
+  if (length(summary_cols) >= 2) {
+    exclusion_summary <- as.data.frame(table(wrangling_exclusion_log[summary_cols]), stringsAsFactors = FALSE)
+    names(exclusion_summary)[ncol(exclusion_summary)] <- "n"
+  } else {
+    exclusion_summary <- data.frame()
+  }
+}
+
+if (is.null(wrangling_qc_log)) {
+  wrangling_qc_log_audit <- data.frame(
+    item = "wrangling_qc_log",
+    status = "missing",
+    n_rows = NA_integer_,
+    n_columns = NA_integer_,
+    stringsAsFactors = FALSE
+  )
+} else {
+  wrangling_qc_log_audit <- data.frame(
+    item = "wrangling_qc_log",
+    status = "found",
+    n_rows = nrow(wrangling_qc_log),
+    n_columns = ncol(wrangling_qc_log),
+    stringsAsFactors = FALSE
+  )
+}
+
+exclusion_log_audit
+wrangling_qc_log_audit
+exclusion_summary
+```
+
+```{r export-exclusion-audit}
+write_table(exclusion_log_audit, "01_qc_exclusion_log_audit.csv")
+write_table(wrangling_qc_log_audit, "01_qc_wrangling_qc_log_audit.csv")
+if (nrow(exclusion_summary) > 0) {
+  write_table(exclusion_summary, "01_qc_exclusion_summary.csv")
+}
+```
+
+---
+
+# 01.15 Save audited datasets
+
+The audited datasets preserve the wrangled battery-level data after this QC audit. They are the only datasets that downstream R notebooks should load.
+
+```{r save-audited-datasets}
+bt1_audited <- bt1
+bt2_audited <- bt2
+bt3_audited <- bt3
+
+bt1_audited_path <- file.path(paths$data_processed, "bt1_audited.csv")
+bt2_audited_path <- file.path(paths$data_processed, "bt2_audited.csv")
+bt3_audited_path <- file.path(paths$data_processed, "bt3_audited.csv")
+
+write.csv(bt1_audited, bt1_audited_path, row.names = FALSE)
+write.csv(bt2_audited, bt2_audited_path, row.names = FALSE)
+write.csv(bt3_audited, bt3_audited_path, row.names = FALSE)
+
+audited_dataset_outputs <- data.frame(
+  dataset = c("bt1_audited", "bt2_audited", "bt3_audited"),
+  path = c(bt1_audited_path, bt2_audited_path, bt3_audited_path),
+  rows = c(nrow(bt1_audited), nrow(bt2_audited), nrow(bt3_audited)),
+  columns = c(ncol(bt1_audited), ncol(bt2_audited), ncol(bt3_audited)),
+  stringsAsFactors = FALSE
+)
+
+audited_dataset_outputs
+```
+
+```{r export-audited-output-summary}
+write_table(audited_dataset_outputs, "01_qc_audited_dataset_outputs.csv")
+```
+
+---
+
+# 01.16 QC conclusion
+
+This conclusion is non-inferential. It summarizes what was checked and what must be carried into Notebook 02.
+
+```{r qc-conclusion}
+qc_conclusion <- data.frame(
+  item = c(
+    "Wrangled battery files loaded",
+    "Battery identity checked",
+    "Schema and endpoint availability checked",
+    "Fish-ID integrity checked",
+    "Treatment by exposure cells counted",
+    "Datetime audit exported",
+    "Missingness audit exported",
+    "Range and duration audits exported",
+    "Derived-variable audit exported",
+    "Condition factor audited",
+    "QC flag summary exported",
+    "Wrangling logs inspected",
+    "Audited datasets saved",
+    "Inferential statistics performed"
+  ),
+  status = c(
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    !is.null(wrangling_exclusion_log) || !is.null(wrangling_qc_log),
+    TRUE,
+    FALSE
+  ),
+  note = c(
+    "BT1, BT2, and BT3 were loaded from data_processed.",
+    "Battery identity was checked using file label, battery column, and presence flags where available.",
+    "Column presence and endpoint-registry availability were checked across batteries.",
+    "Within-battery duplication and cross-battery fish-ID overlap were audited.",
+    "Cell sizes are available for downstream model-feasibility checks.",
+    "Datetime is treated as audit metadata, not as an inferential covariate here.",
+    "Missingness is documented, not automatically treated as exclusion.",
+    "Duration and impossible-value issues are flagged for later sensitivity decisions.",
+    "Derived variables are checked diagnostically only.",
+    "Kc/Kf/condition-factor consistency is checked before PCA use.",
+    "Manual-review and other flags are summarized for downstream decisions.",
+    "Wrangling logs are inspected if present.",
+    "Audited datasets are written to data_processed for Notebook 02.",
+    "No inferential statistics are run in Notebook 01."
+  ),
+  stringsAsFactors = FALSE
+)
+
+qc_conclusion
+```
+
+```{r export-qc-conclusion}
+write_table(qc_conclusion, "01_qc_conclusion.csv")
+
+qc_manifest <- list(
+  loaded_files = loaded_files,
+  battery_identity = battery_identity,
+  dataset_structure = dataset_structure,
+  fish_id_integrity = fish_id_integrity,
+  cross_battery_overlap = cross_battery_overlap,
+  cell_counts = cell_counts,
+  condition_factor_audit = condition_factor_audit,
+  audited_dataset_outputs = audited_dataset_outputs,
+  qc_conclusion = qc_conclusion
+)
+
+saveRDS(qc_manifest, file.path(paths$outputs_logs, "01_qc_manifest.rds"))
+```
+
+The next notebook is `02_endpoint_hierarchy_and_assumptions.Rmd`. Despite the filename, its role is endpoint registry and model readiness. It should load only:
+
+- `data_processed/bt1_audited.csv`
+- `data_processed/bt2_audited.csv`
+- `data_processed/bt3_audited.csv`
+
+and use the endpoint registry plus this QC audit to decide which endpoints can be modeled, compared across battery contexts, and included in the single PCA.

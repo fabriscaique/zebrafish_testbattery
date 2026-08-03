@@ -1,0 +1,7 @@
+item,conclusion
+dataset_scope,PCA was restricted to BT1 because BT1 contains the full battery in the same fish.
+pca_role,One PCA was run as exploratory visualization of multivariate full-battery structure.
+variable_scope,"The PCA used the agreed endpoint set after availability, variance, condition-factor, first-choice, and complete-case checks."
+component_interpretation,Component labels are assigned from loadings/charges after PCA. Mixed components remain mixed.
+pc_score_use,"PC scores and centroids are descriptive annotations of PCA space, not the primary ethanol-effect test."
+notebook06_need,"Notebook 06 should audit concordance, condition-factor handling, missingness decisions, and PCA stability without creating a competing PCA unless the roadmap changes."

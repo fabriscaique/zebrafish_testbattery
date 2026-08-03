@@ -1,0 +1,2 @@
+n_variables,n_complete_rows,n_kaiser_components,n_cumulative_70_components,elbow_component,n_components_interpreted,inference_rule
+13,110,5,6,3,3,One PCA is run for visualization. Component labels are assigned from loadings after PCA; PCA is not the primary ethanol-effect test.

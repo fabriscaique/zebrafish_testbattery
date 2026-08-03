@@ -1,0 +1,4 @@
+"comparison","battery_a","battery_b","n_overlap_ids","independent_sample_assumption"
+"BT1_vs_BT2","BT1","BT2",0,TRUE
+"BT1_vs_BT3","BT1","BT3",0,TRUE
+"BT2_vs_BT3","BT2","BT3",0,TRUE

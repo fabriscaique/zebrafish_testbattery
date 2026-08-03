@@ -1,0 +1,2 @@
+n_variables,n_complete_rows,mean_abs_offdiag_correlation,high_redundancy_pairs_n,note
+13,110,0.142,0,Low average correlation; PCA should be read as exploratory visualization only.

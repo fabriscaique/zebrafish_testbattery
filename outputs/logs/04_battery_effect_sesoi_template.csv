@@ -1,0 +1,14 @@
+"endpoint","domain","source_test","endpoint_type","sesoi_raw","sesoi_unit","sesoi_source","equivalence_test_allowed"
+"attempts","endurance","RN","count_or_discrete",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"dist_total","NTT locomotion","NTT","continuous_or_derived",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"first_choice_binary","LDT first choice","LDT","binary",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"last_flux","endurance","RN","count_or_discrete",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"latency","LDT decision latency","LDT","continuous_or_derived",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"mov_total","NTT locomotion","NTT","continuous_or_derived",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"mtpc","LDT transition behavior","LDT","continuous_or_derived",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"num_changes","LDT transition behavior","LDT","count_or_discrete",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"resistance_index","endurance","RN","continuous_or_derived",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"stratum_pref","NTT spatial position","NTT","bounded_continuous_or_proportion",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"time_bright","LDT phototaxis","LDT","bounded_continuous_or_proportion",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"time_in_last_flux","endurance","RN","bounded_continuous_or_proportion",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE
+"vel_mean","NTT locomotion","NTT","continuous_or_derived",NA,"raw endpoint units","not defined; confirmatory TOST not run",FALSE

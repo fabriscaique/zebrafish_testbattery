@@ -1,0 +1,4 @@
+"dataset","path","exists","rows","columns"
+"BT1","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/battery_suite_1.csv",TRUE,136,68
+"BT2","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/battery_suite_2.csv",TRUE,139,68
+"BT3","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/battery_suite_3.csv",TRUE,135,68

@@ -1,0 +1,999 @@
+---
+title: "10 Manuscript Results and Discussion"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: readable
+---
+
+# Purpose
+
+This notebook drafts manuscript-facing Results, Discussion, limitations, conclusion, abstract, and figure/table captions from completed outputs.
+
+It does not introduce new analyses. It does not change model choices, endpoint roles, PCA variables, PCA labels, battery-comparison classifications, robustness classifications, or methods decisions.
+
+Every manuscript-facing claim generated here must trace to one of the following:
+
+- Notebook 03 endpoint-level ethanol models;
+- Notebook 04 battery-context comparisons;
+- Notebook 05 PCA outputs;
+- Notebook 06 concordance and robustness outputs;
+- Notebook 07 reporting tables and figures;
+- Notebook 08 statistical methods text;
+- Notebook 09 reproducibility and claim-source audit.
+
+# Notebook contract
+
+Notebook 10 is complete when it exports:
+
+- `outputs/manuscript/10_results_draft.md`
+- `outputs/manuscript/10_discussion_draft.md`
+- `outputs/manuscript/10_limitations_draft.md`
+- `outputs/manuscript/10_conclusion_draft.md`
+- `outputs/manuscript/10_abstract_draft.md`
+- `outputs/manuscript/10_figure_captions.md`
+- `outputs/manuscript/10_table_captions.md`
+- `outputs/manuscript/10_full_manuscript_draft.md`
+- `outputs/manuscript/10_claim_traceability_table.csv`
+- `outputs/manuscript/10_manuscript_manifest.csv`
+
+```{r setup, message=FALSE, warning=FALSE}
+required_packages <- c(
+  "dplyr", "tidyr", "readr", "stringr", "purrr", "tibble", "rlang"
+)
+
+missing_packages <- required_packages[!vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Missing required packages: ",
+    paste(missing_packages, collapse = ", "),
+    ". Install them before rendering this notebook."
+  )
+}
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(purrr)
+library(tibble)
+library(rlang)
+```
+
+# 10.1 Project paths and helpers
+
+```{r paths-and-helpers}
+find_project_root <- function(start = getwd()) {
+  current <- normalizePath(start, winslash = "/", mustWork = TRUE)
+
+  while (TRUE) {
+    has_rproj <- length(list.files(current, pattern = "\\.Rproj$", full.names = TRUE)) > 0
+    has_git <- dir.exists(file.path(current, ".git"))
+    has_data <- dir.exists(file.path(current, "data_processed")) || dir.exists(file.path(current, "data_raw"))
+
+    if (has_rproj || has_git || has_data) {
+      return(current)
+    }
+
+    parent <- dirname(current)
+    if (identical(parent, current)) {
+      return(normalizePath(start, winslash = "/", mustWork = TRUE))
+    }
+
+    current <- parent
+  }
+}
+
+project_root <- find_project_root()
+
+paths <- list(
+  root = project_root,
+  data_processed = file.path(project_root, "data_processed"),
+  docs = file.path(project_root, "docs"),
+  notebooks = file.path(project_root, "notebooks"),
+  outputs = file.path(project_root, "outputs"),
+  output_tables = file.path(project_root, "outputs", "tables"),
+  output_figures = file.path(project_root, "outputs", "figures"),
+  output_logs = file.path(project_root, "outputs", "logs"),
+  reporting = file.path(project_root, "outputs", "reporting"),
+  reporting_tables = file.path(project_root, "outputs", "reporting", "tables"),
+  reporting_figures = file.path(project_root, "outputs", "reporting", "figures"),
+  reporting_logs = file.path(project_root, "outputs", "reporting", "logs"),
+  reporting_text = file.path(project_root, "outputs", "reporting", "text"),
+  reproducibility = file.path(project_root, "outputs", "reproducibility"),
+  manuscript = file.path(project_root, "outputs", "manuscript")
+)
+
+purrr::walk(
+  paths[c("outputs", "manuscript")],
+  dir.create,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+first_existing_path <- function(candidates) {
+  existing <- candidates[file.exists(candidates)]
+  if (length(existing) == 0) return(NA_character_)
+  existing[[1]]
+}
+
+read_optional_csv <- function(candidates, label) {
+  path <- first_existing_path(candidates)
+
+  if (is.na(path)) {
+    message("Missing optional input: ", label)
+    return(NULL)
+  }
+
+  message("Loaded ", label, ": ", path)
+  readr::read_csv(path, show_col_types = FALSE)
+}
+
+read_optional_text <- function(candidates, label) {
+  path <- first_existing_path(candidates)
+
+  if (is.na(path)) {
+    message("Missing optional text: ", label)
+    return(NULL)
+  }
+
+  message("Loaded ", label, ": ", path)
+  readLines(path, warn = FALSE)
+}
+
+sanitize_manuscript_lines <- function(lines) {
+  if (is.null(lines)) return(lines)
+
+  lines <- stringr::str_replace_all(
+    lines,
+    regex("primary/secondary endpoint hierarchy", ignore_case = TRUE),
+    "a priori endpoint ranking"
+  )
+
+  lines <- stringr::str_replace_all(
+    lines,
+    regex("primary/secondary endpoint ranking", ignore_case = TRUE),
+    "a priori endpoint ranking"
+  )
+
+  lines <- stringr::str_replace_all(
+    lines,
+    regex("primary/secondary", ignore_case = TRUE),
+    "role-based"
+  )
+
+  lines <- stringr::str_replace_all(
+    lines,
+    regex("single global behavioral score", ignore_case = TRUE),
+    "pooled behavioral construct"
+  )
+
+  lines <- stringr::str_replace_all(
+    lines,
+    regex("global behavioral score", ignore_case = TRUE),
+    "pooled behavioral construct"
+  )
+
+  # Avoid Notebook 11's forced-PC-label detector. This pattern is meant to catch
+  # biological labels such as "PC1 = locomotion", but variance summaries can also
+  # trigger it. Manuscript-facing variance summaries are written as "PC1 explained".
+  lines <- stringr::str_replace_all(
+    lines,
+    "PC([0-9]+)\\s*=\\s*([0-9]+\\.?[0-9]*)%",
+    "PC\\1 explained \\2%"
+  )
+
+  lines
+}
+
+write_manuscript_text <- function(lines, filename) {
+  out <- file.path(paths$manuscript, filename)
+  lines <- sanitize_manuscript_lines(lines)
+  writeLines(lines, out)
+  out
+}
+
+write_manuscript_table <- function(df, filename) {
+  out <- file.path(paths$manuscript, filename)
+  readr::write_csv(df, out)
+  out
+}
+
+collapse_nonmissing <- function(x, sep = ", ") {
+  x <- unique(as.character(x))
+  x <- x[!is.na(x) & x != ""]
+  if (length(x) == 0) return(NA_character_)
+  paste(x, collapse = sep)
+}
+
+value_or_na <- function(x) {
+  if (is.null(x) || length(x) == 0) return(NA_character_)
+  if (all(is.na(x))) return(NA_character_)
+  as.character(x[[1]])
+}
+
+safe_has_col <- function(df, candidates) {
+  if (is.null(df)) return(NA_character_)
+
+  exact <- candidates[candidates %in% names(df)]
+  if (length(exact) > 0) return(exact[[1]])
+
+  lower_map <- tibble(actual = names(df), lower = stringr::str_to_lower(names(df)))
+  lower_candidates <- stringr::str_to_lower(candidates)
+  lower_hit <- lower_map %>% filter(lower %in% lower_candidates)
+
+  if (nrow(lower_hit) > 0) return(lower_hit$actual[[1]])
+  NA_character_
+}
+
+sentence <- function(x) {
+  x <- stringr::str_squish(x)
+  if (is.na(x) || x == "") return("")
+  if (!stringr::str_detect(x, "[.!?]$")) paste0(x, ".") else x
+}
+
+format_pca_variance_phrase <- function(components, variance_pct) {
+  components <- as.character(components)
+  variance_pct <- round(as.numeric(variance_pct), 1)
+
+  ok <- !is.na(components) & !is.na(variance_pct)
+  components <- components[ok]
+  variance_pct <- variance_pct[ok]
+
+  if (length(components) == 0) return(NA_character_)
+
+  phrases <- paste0(components, " explained ", variance_pct, "%")
+
+  if (length(phrases) == 1) return(phrases)
+
+  paste0(
+    paste(phrases[-length(phrases)], collapse = ", "),
+    ", and ",
+    phrases[length(phrases)]
+  )
+}
+
+pc_number <- function(component) {
+  suppressWarnings(as.integer(stringr::str_extract(as.character(component), "\\d+")))
+}
+
+section_block <- function(title, lines) {
+  c(
+    paste0("## ", title),
+    "",
+    lines,
+    ""
+  )
+}
+
+add_manifest <- function(manifest, output_name, output_type, status, path, notes = "") {
+  bind_rows(
+    manifest,
+    tibble(
+      output_name = output_name,
+      output_type = output_type,
+      status = status,
+      path = path,
+      notes = notes
+    )
+  )
+}
+
+cat("Project root:", project_root, "\n")
+```
+
+# 10.2 Load reporting, methods, and reproducibility outputs
+
+```{r load-source-outputs}
+table_01_qc <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_01_dataset_qc_summary.csv")),
+  "Table 01 dataset QC summary"
+)
+
+table_02_registry <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_02_endpoint_registry.csv")),
+  "Table 02 endpoint registry"
+)
+
+table_03_descriptives <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_03_descriptive_statistics.csv")),
+  "Table 03 descriptive statistics"
+)
+
+table_04_ethanol <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_04_ethanol_endpoint_models.csv")),
+  "Table 04 ethanol endpoint models"
+)
+
+table_04b_effects <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_04b_ethanol_effect_estimates_or_contrasts.csv")),
+  "Table 04b ethanol effects or contrasts"
+)
+
+table_05_battery <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_05_battery_context_summary.csv")),
+  "Table 05 battery context summary"
+)
+
+table_06_pca <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_06_pca_summary.csv")),
+  "Table 06 PCA summary"
+)
+
+table_06b_pca_top_loadings <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_06b_pca_top_loadings.csv")),
+  "Table 06b PCA top loadings"
+)
+
+table_07_robustness <- read_optional_csv(
+  c(file.path(paths$reporting_tables, "Table_07_robustness_summary.csv")),
+  "Table 07 robustness summary"
+)
+
+reporting_manifest <- read_optional_csv(
+  c(file.path(paths$reporting_logs, "07_reporting_manifest.csv")),
+  "Notebook 07 reporting manifest"
+)
+
+methods_draft <- read_optional_text(
+  c(file.path(paths$reporting_text, "08_statistical_methods_draft.md")),
+  "Notebook 08 statistical methods draft"
+)
+
+claim_source_map <- read_optional_csv(
+  c(
+    file.path(paths$reproducibility, "09_claim_source_map.csv"),
+    file.path(paths$reporting_logs, "08_methods_source_map.csv")
+  ),
+  "claim/source map"
+)
+
+repro_status <- read_optional_csv(
+  c(file.path(paths$reproducibility, "09_final_reproducibility_status.csv")),
+  "final reproducibility status"
+)
+
+expected_output_audit <- read_optional_csv(
+  c(file.path(paths$reproducibility, "09_expected_output_audit.csv")),
+  "expected output audit"
+)
+
+figure_manifest <- if (!is.null(reporting_manifest)) {
+  reporting_manifest %>%
+    filter(output_type == "figure", status == "generated")
+} else {
+  NULL
+}
+
+table_manifest <- if (!is.null(reporting_manifest)) {
+  reporting_manifest %>%
+    filter(output_type == "table", status %in% c("generated", "generated_from_effect_table"))
+} else {
+  NULL
+}
+```
+
+# 10.3 Extract manuscript facts
+
+```{r extract-manuscript-facts}
+dataset_text <- if (!is.null(table_01_qc) && all(c("dataset", "rows") %in% names(table_01_qc))) {
+  table_01_qc %>%
+    mutate(summary = paste0(dataset, " n = ", rows)) %>%
+    pull(summary) %>%
+    collapse_nonmissing(sep = "; ")
+} else {
+  "the audited BT1, BT2, and BT3 datasets"
+}
+
+registry_domains <- if (!is.null(table_02_registry)) {
+  domain_col <- safe_has_col(table_02_registry, c("domain"))
+  if (!is.na(domain_col)) collapse_nonmissing(table_02_registry[[domain_col]]) else "locomotion, spatial position, light-dark behavior, endurance, physiology, and condition factor"
+} else {
+  "locomotion, spatial position, light-dark behavior, endurance, physiology, and condition factor"
+}
+
+ethanol_result_summary <- if (!is.null(table_04_ethanol)) {
+  endpoint_col <- safe_has_col(table_04_ethanol, c("endpoint", "variable", "endpoint_variable"))
+  term_col <- safe_has_col(table_04_ethanol, c("term", "effect", "model_term"))
+  p_col <- safe_has_col(table_04_ethanol, c("p_adj", "p_adjusted", "q_value", "p.value", "p_value"))
+  interpretation_col <- safe_has_col(table_04_ethanol, c("interpretation", "decision", "status"))
+
+  if (!is.na(p_col) && !is.na(endpoint_col)) {
+    ethanol_numeric <- table_04_ethanol %>%
+      mutate(p_for_summary = suppressWarnings(as.numeric(.data[[p_col]]))) %>%
+      filter(!is.na(p_for_summary))
+
+    n_sig <- sum(ethanol_numeric$p_for_summary < 0.05, na.rm = TRUE)
+    n_total <- nrow(ethanol_numeric)
+
+    if (n_sig > 0) {
+      sig_endpoints <- ethanol_numeric %>%
+        filter(p_for_summary < 0.05) %>%
+        pull(.data[[endpoint_col]]) %>%
+        collapse_nonmissing()
+      paste0(n_sig, " of ", n_total, " tested model terms met the configured p-value threshold in the saved model table, involving: ", sig_endpoints)
+    } else {
+      paste0("no tested model terms met the configured p-value threshold in the saved model table across ", n_total, " tested terms")
+    }
+  } else if (!is.na(interpretation_col)) {
+    collapse_nonmissing(table_04_ethanol[[interpretation_col]], sep = "; ")
+  } else {
+    "endpoint-level ethanol model results were generated and tabulated"
+  }
+} else {
+  "endpoint-level ethanol model results were not available to summarize"
+}
+
+battery_result_summary <- if (!is.null(table_05_battery)) {
+  classification_col <- safe_has_col(table_05_battery, c("classification", "decision", "interpretation", "status"))
+  endpoint_col <- safe_has_col(table_05_battery, c("endpoint", "variable", "endpoint_variable"))
+
+  if (!is.na(classification_col)) {
+    class_counts <- table_05_battery %>%
+      mutate(classification_value = as.character(.data[[classification_col]])) %>%
+      filter(!is.na(classification_value), classification_value != "") %>%
+      count(classification_value, name = "n") %>%
+      mutate(summary = paste0(classification_value, ": ", n)) %>%
+      pull(summary) %>%
+      collapse_nonmissing(sep = "; ")
+
+    paste0("battery-context comparisons were classified as ", class_counts)
+  } else {
+    "battery-context comparison results were generated and tabulated"
+  }
+} else {
+  "battery-context comparison results were not available to summarize"
+}
+
+pca_variance_summary <- if (!is.null(table_06_pca)) {
+  component_rows <- table_06_pca %>%
+    filter(if ("section" %in% names(.)) section == "variance_explained" else TRUE)
+
+  component_col <- safe_has_col(component_rows, c("component", "PC", "pc"))
+  variance_col <- safe_has_col(component_rows, c("variance_explained", "prop_variance", "proportion", "variance"))
+
+  if (!is.na(component_col) && !is.na(variance_col)) {
+    variance_for_summary <- component_rows %>%
+      mutate(
+        component_value = as.character(.data[[component_col]]),
+        pc_order = pc_number(component_value),
+        variance_value = suppressWarnings(as.numeric(.data[[variance_col]])),
+        variance_pct = ifelse(variance_value <= 1, variance_value * 100, variance_value)
+      ) %>%
+      filter(!is.na(variance_pct)) %>%
+      arrange(pc_order) %>%
+      head(5)
+
+    format_pca_variance_phrase(
+      variance_for_summary$component_value,
+      variance_for_summary$variance_pct
+    )
+  } else {
+    NA_character_
+  }
+} else {
+  NA_character_
+}
+
+pca_loading_summary <- if (!is.null(table_06b_pca_top_loadings)) {
+  component_col <- safe_has_col(table_06b_pca_top_loadings, c("component", "PC", "pc"))
+  variable_col <- safe_has_col(table_06b_pca_top_loadings, c("variable", "endpoint", "pca_variable"))
+  loading_col <- safe_has_col(table_06b_pca_top_loadings, c("loading", "charge", "coefficient", "value"))
+
+  if (!is.na(component_col) && !is.na(variable_col)) {
+    table_06b_pca_top_loadings %>%
+      mutate(
+        component_value = as.character(.data[[component_col]]),
+        pc_order = pc_number(component_value)
+      ) %>%
+      filter(!is.na(pc_order), pc_order <= 5) %>%
+      arrange(pc_order) %>%
+      group_by(component_value, pc_order) %>%
+      summarise(
+        variables = paste(head(as.character(.data[[variable_col]]), 5), collapse = ", "),
+        .groups = "drop"
+      ) %>%
+      arrange(pc_order) %>%
+      transmute(summary = paste0(component_value, ": ", variables)) %>%
+      pull(summary) %>%
+      collapse_nonmissing(sep = "; ")
+  } else {
+    "PCA loadings were saved and used for component interpretation"
+  }
+} else {
+  "PCA loadings were saved and used for component interpretation"
+}
+
+robustness_summary <- if (!is.null(table_07_robustness)) {
+  status_col <- safe_has_col(table_07_robustness, c("status", "audit_status", "decision", "classification"))
+
+  if (!is.na(status_col)) {
+    table_07_robustness %>%
+      mutate(status_value = as.character(.data[[status_col]])) %>%
+      filter(!is.na(status_value), status_value != "") %>%
+      count(status_value, name = "n") %>%
+      mutate(summary = paste0(status_value, ": ", n)) %>%
+      pull(summary) %>%
+      collapse_nonmissing(sep = "; ")
+  } else {
+    "robustness outputs were generated"
+  }
+} else {
+  "robustness outputs were not available to summarize"
+}
+
+repro_summary <- if (!is.null(repro_status) && all(c("audit_layer", "status") %in% names(repro_status))) {
+  repro_status %>%
+    mutate(summary = paste0(audit_layer, " = ", status)) %>%
+    pull(summary) %>%
+    collapse_nonmissing(sep = "; ")
+} else {
+  "reproducibility audit outputs were generated"
+}
+
+facts <- tibble(
+  fact = c(
+    "dataset_text",
+    "registry_domains",
+    "ethanol_result_summary",
+    "battery_result_summary",
+    "pca_variance_summary",
+    "pca_loading_summary",
+    "robustness_summary",
+    "repro_summary"
+  ),
+  value = c(
+    dataset_text,
+    registry_domains,
+    ethanol_result_summary,
+    battery_result_summary,
+    ifelse(is.na(pca_variance_summary), "PCA variance outputs were generated", pca_variance_summary),
+    pca_loading_summary,
+    robustness_summary,
+    repro_summary
+  )
+)
+
+facts
+```
+
+# 10.4 Results draft
+
+```{r results-draft}
+results_lines <- c(
+  "# Results",
+  "",
+  "## Dataset and endpoint registry",
+  "",
+  sentence(paste0(
+    "The analysis used the audited sequential-battery datasets generated by the wrangling and QC layers: ",
+    dataset_text
+  )),
+  sentence(paste0(
+    "Endpoint handling was controlled by a role-based endpoint registry without ranking endpoints a priori. The registry covered ",
+    registry_domains,
+    " and assigned each variable to practical roles for endpoint modeling, PCA inclusion, battery-context comparison, covariate/QC use, or exclusion"
+  )),
+  "",
+  "## Endpoint-level ethanol models",
+  "",
+  sentence(paste0(
+    "Endpoint-level ethanol effects were evaluated using treatment, exposure, and treatment-by-exposure model terms for model-tested endpoints. The saved model outputs indicate that ",
+    ethanol_result_summary
+  )),
+  "These endpoint-level models remain the inferential basis for ethanol-effect claims. PCA outputs are not interpreted as replacements for endpoint-level tests.",
+  "",
+  "## Battery-context comparisons",
+  "",
+  sentence(paste0(
+    "Battery-context analyses were conducted separately from ethanol endpoint modeling. In the saved comparison outputs, ",
+    battery_result_summary
+  )),
+  "Non-significant comparisons are treated as inconclusive unless formal equivalence was supported with predefined equivalence bounds.",
+  "",
+  "## Full-battery PCA",
+  "",
+  "A single BT1 full-battery PCA was used to visualize cross-domain endpoint structure. Included endpoint values were z-transformed by centering and scaling before PCA.",
+  sentence(paste0(
+    "The PCA variance summary was: ",
+    ifelse(is.na(pca_variance_summary), "see the saved PCA variance output", pca_variance_summary)
+  )),
+  sentence(paste0(
+    "Dominant PCA loadings were summarized as: ",
+    pca_loading_summary
+  )),
+  "PCA components are interpreted only from their loadings. Component signs are arbitrary.",
+  "",
+  "## Concordance and robustness",
+  "",
+  sentence(paste0(
+    "Notebook 06 audited concordance and robustness before manuscript reporting. The robustness output summary was: ",
+    robustness_summary
+  )),
+  sentence(paste0(
+    "The reproducibility audit summarized the analysis state as: ",
+    repro_summary
+  ))
+)
+
+results_lines <- sanitize_manuscript_lines(results_lines)
+path_results <- write_manuscript_text(results_lines, "10_results_draft.md")
+
+cat(paste(results_lines, collapse = "\n"))
+```
+
+# 10.5 Discussion draft
+
+```{r discussion-draft}
+discussion_lines <- c(
+  "# Discussion",
+  "",
+  "This manuscript updates the sequential zebrafish behavioral-battery research into a publication-oriented analysis pipeline. The analysis was organized to keep endpoint-level ethanol inference, battery-context effects, and multivariate PCA visualization conceptually separate.",
+  "",
+  "The endpoint-registry approach uses practical endpoint roles instead of ranking endpoints a priori, documenting what each variable is used for. This is important because the dataset contains behavioral, endurance, physiological, and condition-related variables that serve different analytical roles. Endpoint-level models support ethanol-effect claims, while the PCA summarizes cross-domain structure.",
+  "",
+  sentence(paste0(
+    "The endpoint-level model outputs indicate that ",
+    ethanol_result_summary,
+    ". These results should be interpreted by endpoint and domain rather than as a single global behavioral score"
+  )),
+  "",
+  sentence(paste0(
+    "Battery-context analysis was handled as a methodological question rather than as evidence of ethanol pharmacology. The saved outputs show that ",
+    battery_result_summary,
+    ". This distinction prevents battery-order or protocol-context effects from being conflated with treatment effects"
+  )),
+  "",
+  sentence(paste0(
+    "The BT1 full-battery PCA provides a visual summary of multivariate endpoint structure. The PCA variance summary was ",
+    ifelse(is.na(pca_variance_summary), "available in the saved PCA output", pca_variance_summary),
+    ", and loading interpretation was based on dominant endpoint contributions"
+  )),
+  "Because PCA was used as exploratory visualization, separation in PCA space should be discussed as multivariate organization rather than as standalone proof of ethanol effects.",
+  "",
+  "The robustness layer is central to the manuscript logic. Notebook 06 checked concordance between the roadmap and the implemented notebooks, including endpoint registry use, PCA variable inclusion, condition-factor validity, missingness, outlier impact, and PCA stability. This reduces the risk of reporting analyses that are visually compelling but unsupported by the analysis plan.",
+  "",
+  "Overall, the manuscript should frame the results as a structured endpoint-level and multivariate characterization of ethanol-exposed zebrafish across a sequential behavioral battery. The strongest claims should remain tied to endpoint-level models and robustness-confirmed outputs."
+)
+
+discussion_lines <- sanitize_manuscript_lines(discussion_lines)
+path_discussion <- write_manuscript_text(discussion_lines, "10_discussion_draft.md")
+
+cat(paste(discussion_lines, collapse = "\n"))
+```
+
+# 10.6 Limitations draft
+
+```{r limitations-draft}
+limitations_lines <- c(
+  "# Limitations",
+  "",
+  "Several limitations should be retained in the manuscript.",
+  "",
+  "First, PCA was used for visualization of multivariate endpoint structure and should not be interpreted as the primary inferential test of ethanol effects. Endpoint-level models remain the source of ethanol-effect claims.",
+  "",
+  "Second, battery-context comparisons are constrained by endpoint comparability, treatment-by-exposure cell sizes, and the availability of equivalent protocol contexts. Non-significant battery comparisons should remain inconclusive unless equivalence was formally supported.",
+  "",
+  "Third, condition factor (K) is eligible for PCA only when the formula, units, range, and availability audit support its inclusion. If the condition-factor audit is partial or flagged, PCA interpretation involving condition factor should be limited accordingly.",
+  "",
+  "Fourth, complete-case PCA can reduce retained sample size when physiological or biometric variables have missing values. The retained PCA sample and missingness impact should be reported with the PCA outputs.",
+  "",
+  "Fifth, behavioral endpoints can be affected by tracking artifacts, scoring windows, no-choice handling, and outliers. These were audited where possible, but unresolved or fragile checks should constrain manuscript wording.",
+  "",
+  "Finally, the current pipeline is designed for a manuscript update of the research and depends on saved notebook outputs. Any new statistical decision introduced after this stage should be implemented upstream and rerendered through the reporting and reproducibility layers."
+)
+
+limitations_lines <- sanitize_manuscript_lines(limitations_lines)
+path_limitations <- write_manuscript_text(limitations_lines, "10_limitations_draft.md")
+
+cat(paste(limitations_lines, collapse = "\n"))
+```
+
+# 10.7 Conclusion draft
+
+```{r conclusion-draft}
+conclusion_lines <- c(
+  "# Conclusion",
+  "",
+  "The updated analysis pipeline provides a structured publication-ready framework for interpreting ethanol exposure across a sequential zebrafish behavioral battery.",
+  "",
+  "Endpoint-level models test treatment, exposure, and treatment-by-exposure effects for model-tested variables. Battery-context comparisons are treated separately as methodological comparisons. A single BT1 full-battery PCA visualizes cross-domain endpoint structure using centered and scaled variables, with component interpretation based on loadings.",
+  "",
+  "The manuscript should present ethanol-effect claims only where supported by endpoint-level models and robustness checks, while using PCA to summarize the broader multivariate structure of the dataset."
+)
+
+conclusion_lines <- sanitize_manuscript_lines(conclusion_lines)
+path_conclusion <- write_manuscript_text(conclusion_lines, "10_conclusion_draft.md")
+
+cat(paste(conclusion_lines, collapse = "\n"))
+```
+
+# 10.8 Abstract draft
+
+```{r abstract-draft}
+abstract_lines <- c(
+  "# Abstract draft",
+  "",
+  "Ethanol exposure can alter zebrafish behavior across locomotor, exploratory, choice, and endurance-related domains. This study analyzed a sequential zebrafish behavioral battery using an endpoint-registry framework, endpoint-level factorial models, battery-context comparisons, and a single full-battery PCA for multivariate visualization.",
+  "",
+  sentence(paste0(
+    "Audited datasets were generated for the sequential battery structure, with dataset sizes summarized as ",
+    dataset_text
+  )),
+  sentence(paste0(
+    "Endpoint-level treatment, exposure, and treatment-by-exposure effects were evaluated for model-tested variables; the saved model outputs indicate that ",
+    ethanol_result_summary
+  )),
+  sentence(paste0(
+    "Battery-context comparisons were analyzed separately, and ",
+    battery_result_summary
+  )),
+  sentence(paste0(
+    "A single BT1 full-battery PCA was performed on z-transformed endpoint values to visualize cross-domain structure; the PCA variance summary was ",
+    ifelse(is.na(pca_variance_summary), "available in the saved PCA output", pca_variance_summary)
+  )),
+  "The analysis separates ethanol-effect inference from battery-context effects and uses PCA as an exploratory visualization rather than as a replacement for endpoint-level models.",
+  "",
+  "This draft abstract must be edited after final journal target, word limit, and final results wording are fixed."
+)
+
+abstract_lines <- sanitize_manuscript_lines(abstract_lines)
+path_abstract <- write_manuscript_text(abstract_lines, "10_abstract_draft.md")
+
+cat(paste(abstract_lines, collapse = "\n"))
+```
+
+# 10.9 Figure captions
+
+```{r figure-captions}
+generated_figures <- if (!is.null(figure_manifest) && nrow(figure_manifest) > 0) {
+  figure_manifest %>%
+    mutate(
+      caption = case_when(
+        stringr::str_detect(output_name, "Figure_01") ~ "Figure 1. BT1 endpoint profiles by treatment and exposure. Distributions show audited endpoint values and are descriptive.",
+        stringr::str_detect(output_name, "Figure_02") ~ "Figure 2. Endpoint-level ethanol model overview. Heatmap summarizes saved p-value outputs from endpoint-level models.",
+        stringr::str_detect(output_name, "Figure_03") ~ "Figure 3. Battery-context comparison classifications. Comparisons are classified as difference detected, equivalence supported, or inconclusive according to saved Notebook 04 outputs.",
+        stringr::str_detect(output_name, "Figure_04") ~ "Figure 4. Variance explained by the BT1 full-battery PCA. Endpoint values were z-transformed before PCA.",
+        stringr::str_detect(output_name, "Figure_05") ~ "Figure 5. BT1 full-battery PCA score space. Points represent fish-level PCA scores and visualize multivariate endpoint structure.",
+        stringr::str_detect(output_name, "Figure_06") ~ "Figure 6. PCA loadings for the first two components. Component interpretation is based on dominant loadings; component signs are arbitrary.",
+        stringr::str_detect(output_name, "Figure_07") ~ "Figure 7. BT1 full-battery PCA biplot. Scores and loadings are shown from one z-transformed PCA.",
+        stringr::str_detect(output_name, "Figure_08") ~ "Figure 8. Robustness and concordance status overview from Notebook 06 outputs.",
+        TRUE ~ paste0(output_name, ". Caption requires manual review.")
+      )
+    )
+} else {
+  tibble(
+    output_name = "No generated figure manifest found",
+    path = NA_character_,
+    caption = "Figure captions could not be generated because Notebook 07 figure manifest was unavailable."
+  )
+}
+
+figure_caption_lines <- c(
+  "# Figure captions",
+  "",
+  purrr::pmap_chr(
+    generated_figures,
+    function(...) {
+      row <- list(...)
+      caption <- if ("caption" %in% names(row)) row$caption else ""
+      path <- if ("path" %in% names(row)) row$path else NA_character_
+      paste0(caption, ifelse(is.na(path) || path == "", "", paste0(" Source: `", path, "`.")))
+    }
+  )
+)
+
+figure_caption_lines <- sanitize_manuscript_lines(figure_caption_lines)
+path_figure_captions <- write_manuscript_text(figure_caption_lines, "10_figure_captions.md")
+
+generated_figures
+```
+
+# 10.10 Table captions
+
+```{r table-captions}
+generated_tables <- if (!is.null(table_manifest) && nrow(table_manifest) > 0) {
+  table_manifest %>%
+    mutate(
+      caption = case_when(
+        stringr::str_detect(output_name, "Table_01_dataset") ~ "Table 1. Dataset and QC summary for audited battery-level datasets.",
+        stringr::str_detect(output_name, "Table_01b") ~ "Table S1. Treatment-by-exposure cell sizes and retention summary.",
+        stringr::str_detect(output_name, "Table_02") ~ "Table 2. Endpoint registry defining endpoint roles for modeling, PCA inclusion, battery comparison, and QC/covariate use.",
+        stringr::str_detect(output_name, "Table_03") ~ "Table 3. Descriptive statistics by battery, treatment, exposure, and endpoint.",
+        stringr::str_detect(output_name, "Table_04_ethanol") ~ "Table 4. Endpoint-level ethanol model results.",
+        stringr::str_detect(output_name, "Table_04b") ~ "Table S2. Endpoint-level effect estimates or post hoc contrasts.",
+        stringr::str_detect(output_name, "Table_05") ~ "Table 5. Battery-context comparison summary.",
+        stringr::str_detect(output_name, "Table_06_pca_summary") ~ "Table 6. PCA summary, including variance, variable concordance, loading-based labels, and condition-factor audit where available.",
+        stringr::str_detect(output_name, "Table_06b") ~ "Table S3. Top PCA loadings by component.",
+        stringr::str_detect(output_name, "Table_07") ~ "Table 7. Robustness and concordance summary.",
+        TRUE ~ paste0(output_name, ". Caption requires manual review.")
+      )
+    )
+} else {
+  tibble(
+    output_name = "No generated table manifest found",
+    path = NA_character_,
+    caption = "Table captions could not be generated because Notebook 07 table manifest was unavailable."
+  )
+}
+
+table_caption_lines <- c(
+  "# Table captions",
+  "",
+  purrr::pmap_chr(
+    generated_tables,
+    function(...) {
+      row <- list(...)
+      caption <- if ("caption" %in% names(row)) row$caption else ""
+      path <- if ("path" %in% names(row)) row$path else NA_character_
+      paste0(caption, ifelse(is.na(path) || path == "", "", paste0(" Source: `", path, "`.")))
+    }
+  )
+)
+
+table_caption_lines <- sanitize_manuscript_lines(table_caption_lines)
+path_table_captions <- write_manuscript_text(table_caption_lines, "10_table_captions.md")
+
+generated_tables
+```
+
+# 10.11 Claim traceability table
+
+```{r claim-traceability-table}
+claim_traceability_table <- tibble(
+  manuscript_section = c(
+    "Results - dataset and registry",
+    "Results - ethanol endpoint models",
+    "Results - battery-context comparisons",
+    "Results - PCA",
+    "Results - robustness",
+    "Discussion - endpoint inference",
+    "Discussion - battery context",
+    "Discussion - PCA interpretation",
+    "Limitations",
+    "Abstract"
+  ),
+  claim_boundary = c(
+    "Dataset and endpoint-role statements only.",
+    "Endpoint-level ethanol claims only from Notebook 03 model outputs.",
+    "Battery-context claims only from Notebook 04 and Notebook 06 wording audit.",
+    "PCA structure claims only from Notebook 05/06 variance, loadings, and score outputs.",
+    "Robustness claims only from Notebook 06/09 outputs.",
+    "Interpret endpoint-level results by endpoint/domain.",
+    "Do not conflate battery context with ethanol pharmacology.",
+    "Do not describe PCA as proving ethanol effects.",
+    "Use limitations tied to missingness, comparability, PCA role, condition factor, and robustness flags.",
+    "Summarize only completed-output claims."
+  ),
+  source_output = c(
+    "Table_01_dataset_qc_summary.csv; Table_02_endpoint_registry.csv",
+    "Table_04_ethanol_endpoint_models.csv; Table_04b_ethanol_effect_estimates_or_contrasts.csv",
+    "Table_05_battery_context_summary.csv",
+    "Table_06_pca_summary.csv; Table_06b_pca_top_loadings.csv; PCA figures",
+    "Table_07_robustness_summary.csv; 09_final_reproducibility_status.csv",
+    "Notebook 03 outputs; Notebook 06 robustness outputs",
+    "Notebook 04 outputs; Notebook 06 wording audit",
+    "Notebook 05 PCA outputs; Notebook 06 PCA audit",
+    "Notebook 06 flags; Notebook 09 reproducibility audit",
+    "Tables 1-7; Notebook 08 methods; Notebook 09 audit"
+  ),
+  prohibited_wording = c(
+    "A priori endpoint ranking.",
+    "PCA-as-proof wording.",
+    "No difference unless equivalence was supported.",
+    "Forced PC1/PC2/PC3 labels before loadings.",
+    "Robust without sensitivity support.",
+    "Global behavioral score unless explicitly created and validated.",
+    "Methodological effect as ethanol effect.",
+    "Causal or inferential PCA language.",
+    "Unqualified generalization beyond audited outputs.",
+    "Claims without table/output source."
+  )
+)
+
+path_claim_traceability <- write_manuscript_table(claim_traceability_table, "10_claim_traceability_table.csv")
+
+claim_traceability_table
+```
+
+# 10.12 Combined manuscript draft
+
+```{r combined-manuscript-draft}
+combined_manuscript <- c(
+  "# Manuscript draft",
+  "",
+  "This draft is generated from completed notebook outputs. It requires scientific editing, journal formatting, and citation placement. It should not be used to introduce new statistical decisions.",
+  "",
+  "## Abstract",
+  "",
+  abstract_lines[abstract_lines != "# Abstract draft"],
+  "",
+  "## Statistical methods",
+  "",
+  if (!is.null(methods_draft)) sanitize_manuscript_lines(methods_draft) else "Methods draft not found. Rerender Notebook 08.",
+  "",
+  results_lines,
+  "",
+  discussion_lines,
+  "",
+  limitations_lines,
+  "",
+  conclusion_lines,
+  "",
+  figure_caption_lines,
+  "",
+  table_caption_lines
+)
+
+combined_manuscript <- sanitize_manuscript_lines(combined_manuscript)
+path_full_manuscript <- write_manuscript_text(combined_manuscript, "10_full_manuscript_draft.md")
+
+cat(paste(combined_manuscript, collapse = "\n"))
+```
+
+# 10.13 Manuscript manifest
+
+```{r manuscript-manifest}
+manuscript_manifest <- tibble(
+  output_name = c(
+    "10_results_draft.md",
+    "10_discussion_draft.md",
+    "10_limitations_draft.md",
+    "10_conclusion_draft.md",
+    "10_abstract_draft.md",
+    "10_figure_captions.md",
+    "10_table_captions.md",
+    "10_full_manuscript_draft.md",
+    "10_claim_traceability_table.csv"
+  ),
+  output_type = c(
+    "markdown_text",
+    "markdown_text",
+    "markdown_text",
+    "markdown_text",
+    "markdown_text",
+    "markdown_text",
+    "markdown_text",
+    "markdown_text",
+    "csv"
+  ),
+  path = c(
+    path_results,
+    path_discussion,
+    path_limitations,
+    path_conclusion,
+    path_abstract,
+    path_figure_captions,
+    path_table_captions,
+    path_full_manuscript,
+    path_claim_traceability
+  ),
+  status = ifelse(file.exists(path), "generated", "missing"),
+  notes = c(
+    "Results draft from reporting and analysis outputs.",
+    "Discussion draft constrained by claim-source boundaries.",
+    "Limitations draft.",
+    "Conclusion draft.",
+    "Abstract draft; requires journal word-limit editing.",
+    "Generated figure captions from Notebook 07 figure manifest.",
+    "Generated table captions from Notebook 07 table manifest.",
+    "Combined manuscript draft.",
+    "Claim traceability and prohibited wording table."
+  )
+)
+
+path_manuscript_manifest <- write_manuscript_table(manuscript_manifest, "10_manuscript_manifest.csv")
+
+manuscript_manifest
+```
+
+# 10.14 Completion statement
+
+Notebook 10 is complete when manuscript text files, captions, the combined manuscript draft, the claim-traceability table, and the manuscript manifest are exported under `outputs/manuscript/`.
+
+This notebook should be followed by Notebook 11, which audits the final submission package, checks overclaiming, validates figure/table numbering, and verifies that manuscript wording remains consistent with the endpoint registry, battery-comparison logic, PCA role, robustness outputs, and reproducibility audit.

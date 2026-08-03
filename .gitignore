@@ -1,0 +1,29 @@
+# ---- Editor / IDE state ----
+.Rproj.user/
+.Rhistory
+.RData
+.RDataTmp
+*.Rproj.user/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- LaTeX build artefacts ----
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# ---- Third-party copyrighted material (NOT redistributable) ----
+references/*.pdf
+
+# ---- Large superseded artefacts ----
+outputs/figures/05_pca_interactive_3d_bt1.html

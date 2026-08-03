@@ -1,0 +1,14 @@
+"stage","file","required_before_notebook","full_path","exists_now"
+"wrangling_input","data_raw/masters_data.csv","00W","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_raw/masters_data.csv",TRUE
+"wrangling_output","data_processed/battery_suite_1.csv","01","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/battery_suite_1.csv",TRUE
+"wrangling_output","data_processed/battery_suite_2.csv","01","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/battery_suite_2.csv",TRUE
+"wrangling_output","data_processed/battery_suite_3.csv","01","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/battery_suite_3.csv",TRUE
+"wrangling_log","outputs/logs/wrangling_exclusion_log.csv","01","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/logs/wrangling_exclusion_log.csv",FALSE
+"wrangling_log","outputs/logs/wrangling_qc_log.csv","01","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/logs/wrangling_qc_log.csv",TRUE
+"audit_output","data_processed/bt1_audited.csv","02","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/bt1_audited.csv",TRUE
+"audit_output","data_processed/bt2_audited.csv","02","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/bt2_audited.csv",TRUE
+"audit_output","data_processed/bt3_audited.csv","02","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed/bt3_audited.csv",TRUE
+"registry_output","outputs/logs/02_endpoint_registry.csv","03","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/logs/02_endpoint_registry.csv",TRUE
+"model_output","outputs/models/03_ethanol_model_results.csv","04","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/03_ethanol_model_results.csv",FALSE
+"battery_output","outputs/models/04_battery_effect_results.csv","05","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/04_battery_effect_results.csv",FALSE
+"pca_output","outputs/models/05_pca_model_summary.csv","06","C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/models/05_pca_model_summary.csv",FALSE

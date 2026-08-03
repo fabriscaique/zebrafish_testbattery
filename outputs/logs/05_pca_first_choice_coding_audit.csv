@@ -1,0 +1,4 @@
+source_variable,category,n
+first_choice_binary,0_dark,44
+first_choice_binary,1_bright,91
+first_choice_binary,missing_or_ambiguous,1

@@ -1,0 +1,20 @@
+event_type,fish_id,battery,variable,old_value,new_value,notes
+manual_weight_decimal_correction,1BT24hCTR01,BT1,wt,3.9,0.39,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR02,BT1,wt,4.6,0.45999999999999996,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR03,BT1,wt,3.5,0.35,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR04,BT1,wt,3.7,0.37,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR05,BT1,wt,3.3,0.32999999999999996,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR06,BT1,wt,3.0,0.3,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR07,BT1,wt,3.3,0.32999999999999996,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR08,BT1,wt,2.9,0.29,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR09,BT1,wt,3.9,0.39,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR10,BT1,wt,6.0,0.6,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR11,BT1,wt,7.0,0.7,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR12,BT1,wt,3.8,0.38,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR13,BT1,wt,4.0,0.4,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR14,BT1,wt,3.6,0.36,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+manual_weight_decimal_correction,1BT24hCTR15,BT1,wt,4.0,0.4,BT1 weight > 1 g corrected by dividing by 10 according to documented lab-note rationale.
+export_complete,,,battery_suite_1.csv,,136.0,C:\Users\caiqu\OneDrive\Documents\Masters\zebrafish_testbattery_repo\data_processed\battery_suite_1.csv
+export_complete,,,battery_suite_2.csv,,139.0,C:\Users\caiqu\OneDrive\Documents\Masters\zebrafish_testbattery_repo\data_processed\battery_suite_2.csv
+export_complete,,,battery_suite_3.csv,,135.0,C:\Users\caiqu\OneDrive\Documents\Masters\zebrafish_testbattery_repo\data_processed\battery_suite_3.csv
+export_complete,,,exclusion_log.csv,,7.0,C:\Users\caiqu\OneDrive\Documents\Masters\zebrafish_testbattery_repo\outputs\logs\exclusion_log.csv

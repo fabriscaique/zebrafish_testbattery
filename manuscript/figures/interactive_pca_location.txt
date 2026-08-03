@@ -1,0 +1,18 @@
+INTERACTIVE PCA SUPPLEMENT - LOCATION
+=====================================
+
+Canonical deployable package:   docs/pca3d/
+
+This directory is the canonical, deployable interactive PC1-PC2-PC3 visualisation.
+It reads the archived canonical PCA scores and loadings (14 endpoints, complete-case
+n = 135) from docs/pca3d/data/ and does not refit the analysis or alter loadings.
+
+It is a website, not a static figure, and is therefore NOT one of the 30 static
+figure files in this folder. It has deliberately not been copied here.
+
+OBSOLETE - DO NOT USE:
+  outputs/figures/05_pca_interactive_3d_bt1.html
+  (superseded standalone HTML from an earlier PCA specification)
+
+Referenced in: Methods 2.9.6 (exploratory principal component analysis) and
+Methods 2.10 (software and reproducibility).

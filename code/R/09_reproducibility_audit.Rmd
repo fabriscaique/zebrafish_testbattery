@@ -1,0 +1,851 @@
+---
+title: "09 Reproducibility Audit"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: readable
+---
+
+# Purpose
+
+This notebook performs the final reproducibility and file-inventory audit before manuscript writing.
+
+It does not introduce new statistical decisions. It does not rerun endpoint models, battery-context comparisons, PCA, or robustness analyses. Its role is to verify whether the project files, outputs, package environment, reporting bundle, and methods text are traceable and internally consistent.
+
+The audit covers:
+
+- repository and notebook inventory;
+- data and output file inventory;
+- expected-output presence across notebooks 00W-08;
+- package and session information;
+- reporting-bundle consistency;
+- methods-text consistency;
+- claim-source mapping;
+- README-ready execution summary.
+
+# Notebook contract
+
+Notebook 09 is complete when it exports:
+
+- `outputs/reproducibility/09_file_inventory.csv`
+- `outputs/reproducibility/09_notebook_inventory.csv`
+- `outputs/reproducibility/09_expected_output_audit.csv`
+- `outputs/reproducibility/09_package_versions.csv`
+- `outputs/reproducibility/09_session_info.txt`
+- `outputs/reproducibility/09_reporting_bundle_audit.csv`
+- `outputs/reproducibility/09_methods_text_audit.csv`
+- `outputs/reproducibility/09_claim_source_map.csv`
+- `outputs/reproducibility/09_readme_execution_summary.md`
+- `outputs/reproducibility/09_reproducibility_manifest.csv`
+
+```{r setup, message=FALSE, warning=FALSE}
+required_packages <- c(
+  "dplyr", "tidyr", "readr", "stringr", "purrr", "tibble", "rlang"
+)
+
+missing_packages <- required_packages[!vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Missing required packages: ",
+    paste(missing_packages, collapse = ", "),
+    ". Install them before rendering this notebook."
+  )
+}
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(purrr)
+library(tibble)
+library(rlang)
+```
+
+# 09.1 Project paths and helpers
+
+```{r paths-and-helpers}
+find_project_root <- function(start = getwd()) {
+  current <- normalizePath(start, winslash = "/", mustWork = TRUE)
+
+  while (TRUE) {
+    has_rproj <- length(list.files(current, pattern = "\\.Rproj$", full.names = TRUE)) > 0
+    has_git <- dir.exists(file.path(current, ".git"))
+    has_data <- dir.exists(file.path(current, "data_processed")) || dir.exists(file.path(current, "data_raw"))
+
+    if (has_rproj || has_git || has_data) {
+      return(current)
+    }
+
+    parent <- dirname(current)
+    if (identical(parent, current)) {
+      return(normalizePath(start, winslash = "/", mustWork = TRUE))
+    }
+
+    current <- parent
+  }
+}
+
+project_root <- find_project_root()
+
+paths <- list(
+  root = project_root,
+  data_raw = file.path(project_root, "data_raw"),
+  data_processed = file.path(project_root, "data_processed"),
+  docs = file.path(project_root, "docs"),
+  notebooks = file.path(project_root, "notebooks"),
+  outputs = file.path(project_root, "outputs"),
+  output_tables = file.path(project_root, "outputs", "tables"),
+  output_figures = file.path(project_root, "outputs", "figures"),
+  output_logs = file.path(project_root, "outputs", "logs"),
+  output_models = file.path(project_root, "outputs", "models"),
+  reporting = file.path(project_root, "outputs", "reporting"),
+  reporting_tables = file.path(project_root, "outputs", "reporting", "tables"),
+  reporting_figures = file.path(project_root, "outputs", "reporting", "figures"),
+  reporting_logs = file.path(project_root, "outputs", "reporting", "logs"),
+  reporting_text = file.path(project_root, "outputs", "reporting", "text"),
+  reproducibility = file.path(project_root, "outputs", "reproducibility"),
+  python = file.path(project_root, "python"),
+  R = file.path(project_root, "R")
+)
+
+purrr::walk(
+  paths[c("outputs", "reproducibility")],
+  dir.create,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+first_existing_path <- function(candidates) {
+  existing <- candidates[file.exists(candidates)]
+  if (length(existing) == 0) return(NA_character_)
+  existing[[1]]
+}
+
+safe_file_size <- function(path) {
+  if (!file.exists(path)) return(NA_real_)
+  file.info(path)$size
+}
+
+safe_mtime <- function(path) {
+  if (!file.exists(path)) return(as.POSIXct(NA))
+  file.info(path)$mtime
+}
+
+safe_md5 <- function(path) {
+  if (!file.exists(path) || dir.exists(path)) return(NA_character_)
+  tryCatch(
+    as.character(tools::md5sum(path)),
+    error = function(e) NA_character_
+  )
+}
+
+write_repro_table <- function(df, filename) {
+  out <- file.path(paths$reproducibility, filename)
+  readr::write_csv(df, out)
+  out
+}
+
+write_repro_text <- function(lines, filename) {
+  out <- file.path(paths$reproducibility, filename)
+  writeLines(lines, out)
+  out
+}
+
+add_manifest <- function(manifest, output_name, output_type, status, path, notes = "") {
+  bind_rows(
+    manifest,
+    tibble(
+      output_name = output_name,
+      output_type = output_type,
+      status = status,
+      path = path,
+      notes = notes
+    )
+  )
+}
+
+read_optional_csv <- function(candidates, label) {
+  path <- first_existing_path(candidates)
+
+  if (is.na(path)) {
+    message("Missing optional input: ", label)
+    return(NULL)
+  }
+
+  message("Loaded ", label, ": ", path)
+  readr::read_csv(path, show_col_types = FALSE)
+}
+
+read_optional_text <- function(candidates, label) {
+  path <- first_existing_path(candidates)
+
+  if (is.na(path)) {
+    message("Missing optional text: ", label)
+    return(NULL)
+  }
+
+  message("Loaded ", label, ": ", path)
+  readLines(path, warn = FALSE)
+}
+
+audit_file_presence <- function(label, candidates, required = TRUE, source_notebook = NA_character_) {
+  path <- first_existing_path(candidates)
+
+  tibble(
+    label = label,
+    source_notebook = source_notebook,
+    required = required,
+    status = ifelse(!is.na(path), "present", ifelse(required, "missing_required", "missing_optional")),
+    path = path,
+    size_bytes = ifelse(!is.na(path), safe_file_size(path), NA_real_),
+    modified_time = ifelse(!is.na(path), as.character(safe_mtime(path)), NA_character_),
+    md5 = ifelse(!is.na(path), safe_md5(path), NA_character_),
+    candidates_checked = paste(candidates, collapse = " | ")
+  )
+}
+
+extract_forbidden_terms <- function(lines, patterns) {
+  if (is.null(lines)) {
+    return(tibble(pattern = names(patterns), count = NA_integer_, examples = NA_character_))
+  }
+
+  text <- paste(lines, collapse = "\n")
+
+  purrr::map2_dfr(names(patterns), patterns, function(label, pattern) {
+    matches <- stringr::str_extract_all(text, pattern, simplify = FALSE)[[1]]
+    examples <- unique(matches)
+    examples <- examples[examples != ""]
+    tibble(
+      pattern = label,
+      count = length(matches),
+      examples = ifelse(length(examples) == 0, NA_character_, paste(head(examples, 5), collapse = " | "))
+    )
+  })
+}
+
+cat("Project root:", project_root, "\n")
+```
+
+# 09.2 Repository file inventory
+
+```{r repository-file-inventory}
+inventory_roots <- c(
+  paths$data_raw,
+  paths$data_processed,
+  paths$docs,
+  paths$notebooks,
+  paths$outputs,
+  paths$python,
+  paths$R
+)
+
+inventory_files <- inventory_roots[dir.exists(inventory_roots)] %>%
+  purrr::map(function(root_dir) {
+    list.files(root_dir, recursive = TRUE, full.names = TRUE, all.files = FALSE)
+  }) %>%
+  unlist(use.names = FALSE) %>%
+  unique()
+
+file_inventory <- tibble(full_path = inventory_files) %>%
+  filter(file.exists(full_path), !dir.exists(full_path)) %>%
+  mutate(
+    relative_path = stringr::str_replace(full_path, paste0("^", stringr::fixed(paths$root), "/?"), ""),
+    folder = dirname(relative_path),
+    filename = basename(relative_path),
+    extension = stringr::str_to_lower(tools::file_ext(filename)),
+    size_bytes = file.info(full_path)$size,
+    modified_time = as.character(file.info(full_path)$mtime),
+    md5 = purrr::map_chr(full_path, safe_md5),
+    file_class = case_when(
+      extension %in% c("rmd", "ipynb", "r", "py") ~ "code_or_notebook",
+      extension %in% c("csv", "tsv", "xlsx", "xls") ~ "data_or_table",
+      extension %in% c("png", "jpg", "jpeg", "pdf", "svg") ~ "figure_or_document",
+      extension %in% c("md", "txt") ~ "text_or_log",
+      TRUE ~ "other"
+    )
+  ) %>%
+  arrange(relative_path)
+
+path_file_inventory <- write_repro_table(file_inventory, "09_file_inventory.csv")
+
+file_inventory %>% head(30)
+```
+
+# 09.3 Notebook inventory
+
+```{r notebook-inventory}
+expected_notebooks <- tibble(
+  order = c("00W", "00R", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"),
+  expected_file = c(
+    "python/00_data_wrangling.ipynb",
+    "notebooks/00_project_setup.Rmd",
+    "notebooks/01_data_audit_and_qc.Rmd",
+    "notebooks/02_endpoint_hierarchy_and_assumptions.Rmd",
+    "notebooks/03_ethanol_factorial_models.Rmd",
+    "notebooks/04_battery_effect_analysis.Rmd",
+    "notebooks/05_multivariate_pca_structure.Rmd",
+    "notebooks/06_sensitivity_and_robustness.Rmd",
+    "notebooks/07_reporting_tables_and_figures.Rmd",
+    "notebooks/08_statistical_methods_text.Rmd",
+    "notebooks/09_reproducibility_audit.Rmd",
+    "notebooks/10_manuscript_results_and_discussion.Rmd",
+    "notebooks/11_submission_package_audit.Rmd"
+  ),
+  role = c(
+    "wrangling",
+    "project setup",
+    "data audit and QC",
+    "endpoint registry and assumptions",
+    "endpoint-level ethanol models",
+    "battery-context analysis",
+    "single full-battery PCA",
+    "concordance and robustness",
+    "reporting tables and figures",
+    "statistical methods text",
+    "reproducibility audit",
+    "manuscript results and discussion",
+    "submission package audit"
+  )
+) %>%
+  mutate(
+    full_path = file.path(paths$root, expected_file),
+    exists = file.exists(full_path),
+    status = case_when(
+      exists ~ "present",
+      order %in% c("10", "11") ~ "not_yet_expected",
+      TRUE ~ "missing"
+    ),
+    size_bytes = purrr::map_dbl(full_path, safe_file_size),
+    modified_time = purrr::map_chr(full_path, ~ as.character(safe_mtime(.x))),
+    md5 = purrr::map_chr(full_path, safe_md5)
+  )
+
+path_notebook_inventory <- write_repro_table(expected_notebooks, "09_notebook_inventory.csv")
+
+expected_notebooks
+```
+
+# 09.4 Expected output audit
+
+```{r expected-output-audit}
+expected_outputs <- bind_rows(
+  audit_file_presence(
+    "BT1 audited dataset",
+    c(
+      file.path(paths$data_processed, "bt1_audited.csv"),
+      file.path(paths$data_processed, "BT1_audited.csv"),
+      file.path(paths$data_processed, "battery_suite_1_audited.csv")
+    ),
+    required = TRUE,
+    source_notebook = "01_data_audit_and_qc.Rmd"
+  ),
+  audit_file_presence(
+    "BT2 audited dataset",
+    c(
+      file.path(paths$data_processed, "bt2_audited.csv"),
+      file.path(paths$data_processed, "BT2_audited.csv"),
+      file.path(paths$data_processed, "battery_suite_2_audited.csv")
+    ),
+    required = TRUE,
+    source_notebook = "01_data_audit_and_qc.Rmd"
+  ),
+  audit_file_presence(
+    "BT3 audited dataset",
+    c(
+      file.path(paths$data_processed, "bt3_audited.csv"),
+      file.path(paths$data_processed, "BT3_audited.csv"),
+      file.path(paths$data_processed, "battery_suite_3_audited.csv")
+    ),
+    required = TRUE,
+    source_notebook = "01_data_audit_and_qc.Rmd"
+  ),
+  audit_file_presence(
+    "Endpoint registry",
+    c(
+      file.path(paths$output_tables, "02_endpoint_registry.csv"),
+      file.path(paths$output_tables, "00_endpoint_registry.csv"),
+      file.path(paths$output_logs, "02_endpoint_registry.csv"),
+      file.path(paths$output_logs, "00_endpoint_registry.csv")
+    ),
+    required = TRUE,
+    source_notebook = "02_endpoint_hierarchy_and_assumptions.Rmd"
+  ),
+  audit_file_presence(
+    "Model readiness",
+    c(
+      file.path(paths$output_tables, "02_model_readiness.csv"),
+      file.path(paths$output_tables, "02_model_decision_matrix.csv"),
+      file.path(paths$output_logs, "02_model_readiness.csv")
+    ),
+    required = TRUE,
+    source_notebook = "02_endpoint_hierarchy_and_assumptions.Rmd"
+  ),
+  audit_file_presence(
+    "Endpoint-level ethanol model results",
+    c(
+      file.path(paths$output_tables, "03_ethanol_factorial_results.csv"),
+      file.path(paths$output_tables, "03_factorial_results.csv"),
+      file.path(paths$output_tables, "03_model_results.csv"),
+      file.path(paths$output_tables, "03_endpoint_model_results.csv")
+    ),
+    required = TRUE,
+    source_notebook = "03_ethanol_factorial_models.Rmd"
+  ),
+  audit_file_presence(
+    "Battery-context summary",
+    c(
+      file.path(paths$output_tables, "04_battery_context_summary.csv"),
+      file.path(paths$output_tables, "04_battery_method_summary.csv"),
+      file.path(paths$output_tables, "04_battery_comparison_summary.csv"),
+      file.path(paths$output_tables, "04_battery_results.csv")
+    ),
+    required = TRUE,
+    source_notebook = "04_battery_effect_analysis.Rmd"
+  ),
+  audit_file_presence(
+    "PCA variance explained",
+    c(
+      file.path(paths$output_tables, "05_pca_variance_explained.csv"),
+      file.path(paths$output_tables, "05_pca_eigenvalues.csv"),
+      file.path(paths$output_tables, "06_pca_variance_explained.csv")
+    ),
+    required = TRUE,
+    source_notebook = "05_multivariate_pca_structure.Rmd"
+  ),
+  audit_file_presence(
+    "PCA loadings",
+    c(
+      file.path(paths$output_tables, "05_pca_loadings.csv"),
+      file.path(paths$output_tables, "05_pca_variable_loadings.csv"),
+      file.path(paths$output_tables, "06_pca_loadings_reconstructed.csv")
+    ),
+    required = TRUE,
+    source_notebook = "05_multivariate_pca_structure.Rmd"
+  ),
+  audit_file_presence(
+    "PCA scores",
+    c(
+      file.path(paths$output_tables, "05_pca_scores.csv"),
+      file.path(paths$output_tables, "05_pca_individual_scores.csv"),
+      file.path(paths$output_tables, "06_pca_scores_reconstructed.csv")
+    ),
+    required = TRUE,
+    source_notebook = "05_multivariate_pca_structure.Rmd"
+  ),
+  audit_file_presence(
+    "Notebook 06 decision register",
+    c(
+      file.path(paths$output_tables, "06_decision_register.csv"),
+      file.path(paths$output_logs, "06_decision_register.csv")
+    ),
+    required = TRUE,
+    source_notebook = "06_sensitivity_and_robustness.Rmd"
+  ),
+  audit_file_presence(
+    "Notebook 06 critical flags",
+    c(
+      file.path(paths$output_tables, "06_critical_flags.csv"),
+      file.path(paths$output_logs, "06_critical_flags.csv")
+    ),
+    required = TRUE,
+    source_notebook = "06_sensitivity_and_robustness.Rmd"
+  ),
+  audit_file_presence(
+    "Notebook 07 reporting manifest",
+    c(file.path(paths$reporting_logs, "07_reporting_manifest.csv")),
+    required = TRUE,
+    source_notebook = "07_reporting_tables_and_figures.Rmd"
+  ),
+  audit_file_presence(
+    "Notebook 08 methods draft",
+    c(file.path(paths$reporting_text, "08_statistical_methods_draft.md")),
+    required = TRUE,
+    source_notebook = "08_statistical_methods_text.Rmd"
+  ),
+  audit_file_presence(
+    "Notebook 08 methods source map",
+    c(file.path(paths$reporting_logs, "08_methods_source_map.csv")),
+    required = TRUE,
+    source_notebook = "08_statistical_methods_text.Rmd"
+  )
+)
+
+expected_output_audit <- expected_outputs %>%
+  mutate(
+    audit_status = case_when(
+      status == "present" ~ "pass",
+      status == "missing_required" ~ "fail",
+      TRUE ~ "partial"
+    )
+  )
+
+path_expected_output_audit <- write_repro_table(expected_output_audit, "09_expected_output_audit.csv")
+
+expected_output_audit
+```
+
+# 09.5 Package versions and session information
+
+```{r package-versions-session-info}
+installed_pkgs <- utils::installed.packages()
+
+packages_to_report <- unique(c(
+  "base", "stats", "utils",
+  "dplyr", "tidyr", "readr", "stringr", "purrr", "tibble",
+  "ggplot2", "broom", "rlang", "car", "ARTool", "emmeans",
+  "boot", "factoextra", "Hmisc", "corrplot", "knitr", "rmarkdown"
+))
+
+package_versions <- tibble(package = packages_to_report) %>%
+  mutate(
+    installed = package %in% rownames(installed_pkgs) | package %in% c("base", "stats", "utils"),
+    version = purrr::map_chr(package, function(pkg) {
+      if (pkg %in% c("base", "stats", "utils")) {
+        return(as.character(utils::packageVersion(pkg)))
+      }
+      if (pkg %in% rownames(installed_pkgs)) {
+        return(as.character(installed_pkgs[pkg, "Version"]))
+      }
+      NA_character_
+    })
+  ) %>%
+  arrange(package)
+
+path_package_versions <- write_repro_table(package_versions, "09_package_versions.csv")
+
+session_info_lines <- capture.output(sessionInfo())
+path_session_info <- write_repro_text(session_info_lines, "09_session_info.txt")
+
+package_versions
+```
+
+# 09.6 Reporting bundle audit
+
+```{r reporting-bundle-audit}
+reporting_manifest <- read_optional_csv(
+  c(file.path(paths$reporting_logs, "07_reporting_manifest.csv")),
+  "Notebook 07 reporting manifest"
+)
+
+reporting_bundle_index <- read_optional_csv(
+  c(file.path(paths$reporting_logs, "07_reporting_bundle_index.csv")),
+  "Notebook 07 reporting bundle index"
+)
+
+required_reporting_files <- c(
+  "tables/Table_01_dataset_qc_summary.csv",
+  "tables/Table_02_endpoint_registry.csv",
+  "tables/Table_03_descriptive_statistics.csv",
+  "tables/Table_04_ethanol_endpoint_models.csv",
+  "tables/Table_05_battery_context_summary.csv",
+  "tables/Table_06_pca_summary.csv",
+  "tables/Table_07_robustness_summary.csv",
+  "logs/07_reporting_manifest.csv"
+)
+
+reporting_bundle_audit <- tibble(
+  reporting_file = required_reporting_files,
+  full_path = file.path(paths$reporting, reporting_file),
+  exists = file.exists(full_path),
+  status = ifelse(exists, "present", "missing"),
+  size_bytes = purrr::map_dbl(full_path, safe_file_size),
+  modified_time = purrr::map_chr(full_path, ~ as.character(safe_mtime(.x))),
+  md5 = purrr::map_chr(full_path, safe_md5)
+)
+
+if (!is.null(reporting_manifest) && "status" %in% names(reporting_manifest)) {
+  reporting_manifest_summary <- reporting_manifest %>%
+    count(status, name = "n_outputs")
+} else {
+  reporting_manifest_summary <- tibble(status = "manifest_missing", n_outputs = NA_integer_)
+}
+
+path_reporting_bundle_audit <- write_repro_table(reporting_bundle_audit, "09_reporting_bundle_audit.csv")
+path_reporting_manifest_summary <- write_repro_table(reporting_manifest_summary, "09_reporting_manifest_summary.csv")
+
+reporting_bundle_audit
+```
+
+# 09.7 Methods text audit
+
+```{r methods-text-audit}
+methods_text_path <- file.path(paths$reporting_text, "08_statistical_methods_draft.md")
+methods_text <- if (file.exists(methods_text_path)) readLines(methods_text_path, warn = FALSE) else NULL
+
+forbidden_patterns <- c(
+  "thesis-style language" = "\\bthesis-style\\b|\\bthesis style\\b",
+  "primary/secondary endpoint hierarchy" = "\\bprimary\\b|\\bsecondary\\b",
+  "PCA as proof" = "PCA\\s+(proved|proves|demonstrated|demonstrates)\\s+ethanol|PCA\\s+(tested|tests)\\s+ethanol",
+  "forced PC labels" = "PC1\\s*=|PC2\\s*=|PC3\\s*=",
+  "no-difference wording" = "\\bno difference\\b|\\bno significant difference\\b"
+)
+
+methods_forbidden_terms <- extract_forbidden_terms(methods_text, forbidden_patterns) %>%
+  mutate(
+    audit_status = case_when(
+      is.na(count) ~ "not_checked",
+      count == 0 ~ "pass",
+      pattern == "primary/secondary endpoint hierarchy" & count > 0 ~ "review",
+      TRUE ~ "flag"
+    ),
+    note = case_when(
+      pattern == "primary/secondary endpoint hierarchy" ~ "Review manually: 'primary' may appear in phrases such as primary inference boundary, but endpoint hierarchy wording should be avoided.",
+      TRUE ~ ""
+    )
+  )
+
+expected_methods_files <- tibble(
+  file = c(
+    "08_statistical_methods_draft.md",
+    "08_methods_data_preparation.md",
+    "08_methods_endpoint_registry.md",
+    "08_methods_endpoint_models.md",
+    "08_methods_battery_context.md",
+    "08_methods_pca.md",
+    "08_methods_robustness.md"
+  ),
+  full_path = file.path(paths$reporting_text, file),
+  exists = file.exists(full_path),
+  size_bytes = purrr::map_dbl(full_path, safe_file_size),
+  modified_time = purrr::map_chr(full_path, ~ as.character(safe_mtime(.x))),
+  status = ifelse(exists, "present", "missing")
+)
+
+methods_text_audit <- bind_rows(
+  expected_methods_files %>%
+    transmute(check_type = "methods_file_presence", item = file, status, details = full_path),
+  methods_forbidden_terms %>%
+    transmute(check_type = "methods_wording", item = pattern, status = audit_status, details = paste0("count=", count, "; examples=", examples, "; ", note))
+)
+
+path_methods_text_audit <- write_repro_table(methods_text_audit, "09_methods_text_audit.csv")
+
+methods_text_audit
+```
+
+# 09.8 Claim-source map
+
+```{r claim-source-map}
+claim_source_map <- tibble(
+  claim_type = c(
+    "Data preparation and QC",
+    "Endpoint registry",
+    "Endpoint ethanol effect",
+    "Battery-context effect",
+    "PCA structure",
+    "Condition factor inclusion",
+    "Robustness classification",
+    "Reporting table or figure",
+    "Methods text"
+  ),
+  allowed_source = c(
+    "00_data_wrangling.ipynb; 01_data_audit_and_qc.Rmd; QC logs",
+    "00_project_setup.Rmd; 02_endpoint_hierarchy_and_assumptions.Rmd; endpoint registry CSV",
+    "03_ethanol_factorial_models.Rmd; model result tables; effect-size/contrast tables",
+    "04_battery_effect_analysis.Rmd; battery-comparison tables; Notebook 06 wording audit",
+    "05_multivariate_pca_structure.Rmd; PCA variance/loadings/scores; Notebook 06 PCA audit",
+    "Condition-factor audit from Notebook 05 or 06",
+    "06_sensitivity_and_robustness.Rmd; decision register; critical flags; stability tables",
+    "07_reporting_tables_and_figures.Rmd; reporting manifest",
+    "08_statistical_methods_text.Rmd; methods source map"
+  ),
+  allowed_wording_boundary = c(
+    "Describe transformations, exclusions, derived variables, and data usability only.",
+    "Describe endpoint roles without primary/secondary hierarchy.",
+    "Claim endpoint-level treatment, exposure, or treatment-by-exposure effects only when supported by endpoint models.",
+    "Claim battery-context differences only where detected; otherwise use inconclusive unless formal equivalence was supported.",
+    "Describe multivariate organization and loading-supported component structure; do not claim PCA proves ethanol effects.",
+    "Report as condition factor (K) only if formula, units, range, and availability audit passed.",
+    "Use robust, partially robust, fragile, descriptive, or unresolved according to Notebook 06 outputs.",
+    "Tables and figures summarize saved outputs only.",
+    "Methods text summarizes completed decisions only; no new analysis decisions."
+  ),
+  required_output_check = c(
+    "09_expected_output_audit: BT1/BT2/BT3 audited datasets",
+    "09_expected_output_audit: endpoint registry and model readiness",
+    "09_expected_output_audit: ethanol model results",
+    "09_expected_output_audit: battery-context summary",
+    "09_expected_output_audit: PCA variance, loadings, and scores",
+    "09_expected_output_audit: condition-factor audit where available",
+    "09_expected_output_audit: decision register and critical flags",
+    "09_reporting_bundle_audit; 07_reporting_manifest",
+    "09_methods_text_audit; 08_methods_source_map"
+  )
+)
+
+path_claim_source_map <- write_repro_table(claim_source_map, "09_claim_source_map.csv")
+
+claim_source_map
+```
+
+# 09.9 README-ready execution summary
+
+```{r readme-execution-summary}
+failed_outputs <- expected_output_audit %>% filter(audit_status == "fail")
+missing_notebooks <- expected_notebooks %>% filter(status == "missing")
+missing_reporting <- reporting_bundle_audit %>% filter(status == "missing")
+flagged_methods <- methods_text_audit %>% filter(status %in% c("flag", "review"))
+
+readme_summary <- c(
+  "# Reproducibility and execution summary",
+  "",
+  paste0("Generated on: ", Sys.Date()),
+  "",
+  "## Project execution order",
+  "",
+  "1. `python/00_data_wrangling.ipynb`",
+  "2. `notebooks/00_project_setup.Rmd`",
+  "3. `notebooks/01_data_audit_and_qc.Rmd`",
+  "4. `notebooks/02_endpoint_hierarchy_and_assumptions.Rmd`",
+  "5. `notebooks/03_ethanol_factorial_models.Rmd`",
+  "6. `notebooks/04_battery_effect_analysis.Rmd`",
+  "7. `notebooks/05_multivariate_pca_structure.Rmd`",
+  "8. `notebooks/06_sensitivity_and_robustness.Rmd`",
+  "9. `notebooks/07_reporting_tables_and_figures.Rmd`",
+  "10. `notebooks/08_statistical_methods_text.Rmd`",
+  "11. `notebooks/09_reproducibility_audit.Rmd`",
+  "",
+  "## Locked analysis rules",
+  "",
+  "- Endpoint roles are controlled by the endpoint registry, not by a primary/secondary endpoint hierarchy.",
+  "- Endpoint-level ethanol effects are tested with treatment, exposure, and treatment-by-exposure models.",
+  "- Battery-context comparisons are separate from endpoint-level ethanol models.",
+  "- One single BT1 full-battery PCA is used for multivariate visualization.",
+  "- PCA variables are centered and scaled before PCA.",
+  "- PCA component labels are assigned from loadings.",
+  "- PCA does not replace endpoint-level ethanol models.",
+  "- Condition factor is reported as condition factor (K) only when the audit supports formula and value consistency.",
+  "",
+  "## Audit status",
+  "",
+  paste0("- Missing required notebook files: ", nrow(missing_notebooks)),
+  paste0("- Missing required outputs: ", nrow(failed_outputs)),
+  paste0("- Missing reporting files: ", nrow(missing_reporting)),
+  paste0("- Methods wording flags/reviews: ", nrow(flagged_methods)),
+  "",
+  "## Reproducibility outputs",
+  "",
+  "- `outputs/reproducibility/09_file_inventory.csv`",
+  "- `outputs/reproducibility/09_notebook_inventory.csv`",
+  "- `outputs/reproducibility/09_expected_output_audit.csv`",
+  "- `outputs/reproducibility/09_package_versions.csv`",
+  "- `outputs/reproducibility/09_session_info.txt`",
+  "- `outputs/reproducibility/09_reporting_bundle_audit.csv`",
+  "- `outputs/reproducibility/09_methods_text_audit.csv`",
+  "- `outputs/reproducibility/09_claim_source_map.csv`",
+  "",
+  "## Next step",
+  "",
+  "If required outputs are missing, rerender or patch the corresponding upstream notebook before manuscript writing. If no required outputs are missing, proceed to Notebook 10."
+)
+
+path_readme_summary <- write_repro_text(readme_summary, "09_readme_execution_summary.md")
+
+cat(paste(readme_summary, collapse = "\n"))
+```
+
+# 09.10 Reproducibility manifest
+
+```{r reproducibility-manifest}
+repro_manifest <- tibble(
+  output_name = c(
+    "09_file_inventory.csv",
+    "09_notebook_inventory.csv",
+    "09_expected_output_audit.csv",
+    "09_package_versions.csv",
+    "09_session_info.txt",
+    "09_reporting_bundle_audit.csv",
+    "09_reporting_manifest_summary.csv",
+    "09_methods_text_audit.csv",
+    "09_claim_source_map.csv",
+    "09_readme_execution_summary.md"
+  ),
+  output_type = c(
+    "csv",
+    "csv",
+    "csv",
+    "csv",
+    "text",
+    "csv",
+    "csv",
+    "csv",
+    "csv",
+    "markdown"
+  ),
+  path = c(
+    path_file_inventory,
+    path_notebook_inventory,
+    path_expected_output_audit,
+    path_package_versions,
+    path_session_info,
+    path_reporting_bundle_audit,
+    path_reporting_manifest_summary,
+    path_methods_text_audit,
+    path_claim_source_map,
+    path_readme_summary
+  ),
+  status = ifelse(file.exists(path), "generated", "missing"),
+  notes = c(
+    "Inventory of files in analysis-relevant project folders.",
+    "Presence and checksum audit for expected notebooks.",
+    "Presence and checksum audit for expected upstream outputs.",
+    "Installed package versions for analysis-relevant packages.",
+    "Full R session information.",
+    "Presence audit for reporting bundle files.",
+    "Summary of generated/skipped Notebook 07 outputs.",
+    "Presence and wording audit for Methods text files.",
+    "Claim-source map for manuscript traceability.",
+    "README-ready execution and audit summary."
+  )
+)
+
+path_repro_manifest <- write_repro_table(repro_manifest, "09_reproducibility_manifest.csv")
+
+repro_manifest
+```
+
+# 09.11 Final reproducibility status
+
+```{r final-reproducibility-status}
+final_status <- tibble(
+  audit_layer = c(
+    "Notebook inventory",
+    "Expected output audit",
+    "Reporting bundle audit",
+    "Methods text audit",
+    "Package/session audit",
+    "Claim-source map"
+  ),
+  status = c(
+    ifelse(nrow(missing_notebooks) == 0, "pass", "flag"),
+    ifelse(nrow(failed_outputs) == 0, "pass", "flag"),
+    ifelse(nrow(missing_reporting) == 0, "pass", "flag"),
+    ifelse(any(methods_text_audit$status == "flag"), "flag", ifelse(any(methods_text_audit$status == "review"), "review", "pass")),
+    "generated",
+    "generated"
+  ),
+  details = c(
+    paste0(nrow(missing_notebooks), " missing expected notebook files."),
+    paste0(nrow(failed_outputs), " missing required upstream outputs."),
+    paste0(nrow(missing_reporting), " missing reporting-bundle files."),
+    paste0(sum(methods_text_audit$status == "flag", na.rm = TRUE), " flags; ", sum(methods_text_audit$status == "review", na.rm = TRUE), " review items."),
+    "Package versions and session info exported.",
+    "Claim-source map exported."
+  )
+)
+
+path_final_status <- write_repro_table(final_status, "09_final_reproducibility_status.csv")
+
+final_status
+```
+
+# Completion statement
+
+Notebook 09 is complete when the reproducibility folder contains the file inventory, notebook inventory, expected-output audit, package versions, session information, reporting-bundle audit, methods-text audit, claim-source map, README-ready execution summary, and reproducibility manifest.
+
+If any required output is missing, rerender or patch the source notebook listed in `09_expected_output_audit.csv`. If only optional or future notebooks are missing, proceed according to the execution order.

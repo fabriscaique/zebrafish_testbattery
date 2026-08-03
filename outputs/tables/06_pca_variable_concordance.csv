@@ -1,0 +1,14 @@
+planned_variable,domain,aliases,resolved_variable,available_in_bt1,n_nonmissing,n_unique,numeric_usable,pca_ready,note
+dist_total,NTT locomotion,dist_total|distance_total|total_distance,dist_total,TRUE,136,133,TRUE,TRUE,Resolved and PCA-eligible.
+mov_total,NTT locomotion,mov_total|movement_total|time_moving|moving_time,mov_total,TRUE,136,76,TRUE,TRUE,Resolved and PCA-eligible.
+vel_mean,NTT locomotion,vel_mean|mean_velocity|velocity_mean,vel_mean,TRUE,136,133,TRUE,TRUE,Resolved and PCA-eligible.
+stratum_pref,NTT spatial position,stratum_pref|upper_stratum_pref|top_zone_time|upper_time|perc_upper_stratum,stratum_pref,TRUE,136,126,TRUE,TRUE,Resolved and PCA-eligible.
+time_bright,LDT phototaxis,time_bright|bright_time|time_light|light_time,time_bright,TRUE,136,106,TRUE,TRUE,Resolved and PCA-eligible.
+first_choice_binary,LDT first choice,first_choice_binary|first_choice_valid_binary|first_choice_num|first_choice_coded,first_choice_binary,TRUE,135,2,TRUE,TRUE,Resolved and PCA-eligible.
+latency,LDT decision latency,latency|latency_first_choice|choice_latency,latency,TRUE,136,32,TRUE,TRUE,Resolved and PCA-eligible.
+mtpc,LDT transition behavior,mtpc|mean_time_per_choice|mean_time_per_entry,mtpc,TRUE,136,127,TRUE,TRUE,Resolved and PCA-eligible.
+num_changes,LDT transition behavior,num_changes|number_changes|n_changes|transitions,num_changes,TRUE,136,48,TRUE,TRUE,Resolved and PCA-eligible.
+resistance_index,Endurance,resistance_index|irn_computed|irn|resistance,resistance_index,TRUE,136,114,TRUE,TRUE,Resolved and PCA-eligible.
+attempts,Endurance,attempts|n_attempts|resistance_attempts,attempts,TRUE,136,4,TRUE,TRUE,Resolved and PCA-eligible.
+blood_sugar,Physiology,blood_sugar|glycemia|glucose|blood_glucose,blood_sugar,TRUE,111,85,TRUE,TRUE,Resolved and PCA-eligible.
+condition_factor,Biometry/condition,Kc|Kf|condition_factor|fulton|fulton_k|condition,Kc,TRUE,136,98,TRUE,TRUE,Resolved and PCA-eligible.

@@ -1,0 +1,5 @@
+check,status,details
+endpoint_registry_loaded,present,Registry rows: 23; columns: 24
+no_primary_secondary_columns,pass,No primary/secondary registry columns detected.
+role_columns_present,pass,"Detected role-like columns: domain, source_test, data_type, pca_included"
+contains_endpoint_column,pass,"Registry columns: variable, domain, source_test, data_type, pca_included, endpoint_model, battery_comparison, notes, resolved_variable_all, resolved_variable_BT1, resolved_variable_BT2, resolved_variable_BT3, available_all, available_BT1, available_BT2, available_BT3, n_nonmissing_all, n_nonmissing_BT1, n_nonmissing_BT2, n_nonmissing_BT3, pca_candidate, model_candidate, battery_candidate, available_any"

@@ -1,0 +1,15 @@
+"source_test","domain","endpoint","any_bh_significant_term"
+"RN","endurance","attempts",FALSE
+"post-test physiology","physiology","blood_sugar",TRUE
+"NTT","NTT locomotion","dist_total",TRUE
+"LDT","LDT first choice","first_choice_binary",TRUE
+"RN","endurance","last_flux",TRUE
+"LDT","LDT decision latency","latency",TRUE
+"NTT","NTT locomotion","mov_total",TRUE
+"LDT","LDT transition behavior","mtpc",TRUE
+"LDT","LDT transition behavior","num_changes",FALSE
+"RN","endurance","resistance_index",TRUE
+"NTT","NTT spatial position","stratum_pref",TRUE
+"LDT","LDT phototaxis","time_bright",TRUE
+"RN","endurance","time_in_last_flux",FALSE
+"NTT","NTT locomotion","vel_mean",TRUE

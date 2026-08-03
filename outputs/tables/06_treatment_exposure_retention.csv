@@ -1,0 +1,10 @@
+treatment,exposure,n_total,n_complete_pca,pct_complete_pca,audit_status
+0,1h,14,11,0.7857142857142857,pass
+0,24h,15,12,0.8,pass
+0,96h,16,8,0.5,pass
+0.5,1h,16,13,0.8125,pass
+0.5,24h,15,15,1,pass
+0.5,96h,16,11,0.6875,pass
+1,1h,16,16,1,pass
+1,24h,14,12,0.8571428571428571,pass
+1,96h,14,12,0.8571428571428571,pass

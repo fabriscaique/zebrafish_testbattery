@@ -1,0 +1,5 @@
+variable,resolved_variable,available,n_nonmissing,conservative_iqr_flags,pct_conservative_iqr_flags
+dist_total,dist_total,TRUE,136,0,0
+resistance_index,resistance_index,TRUE,136,0,0
+stratum_pref,stratum_pref,TRUE,136,0,0
+time_bright,time_bright,TRUE,136,0,0

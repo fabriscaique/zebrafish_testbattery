@@ -1,0 +1,19 @@
+"battery","variable","rule","violation_n"
+"BT1","time_bright","time_bright should not be negative",0
+"BT1","time_bright","time_bright > 480 is flagged for LDT scoring-window audit",1
+"BT1","time_bright","time_bright > 600 is impossible under a 10-min LDT scoring window",0
+"BT1","mov_total","mov_total > 480 is flagged for NTT scoring-window audit",0
+"BT1","stratum_pref","stratum_pref must be between 0 and 100 when non-missing",0
+"BT1","pH","pH values outside 0-14 are impossible",0
+"BT2","time_bright","time_bright should not be negative",0
+"BT2","time_bright","time_bright > 480 is flagged for LDT scoring-window audit",0
+"BT2","time_bright","time_bright > 600 is impossible under a 10-min LDT scoring window",0
+"BT2","mov_total","mov_total > 480 is flagged for NTT scoring-window audit",0
+"BT2","stratum_pref","stratum_pref must be between 0 and 100 when non-missing",0
+"BT2","pH","pH values outside 0-14 are impossible",0
+"BT3","time_bright","time_bright should not be negative",0
+"BT3","time_bright","time_bright > 480 is flagged for LDT scoring-window audit",0
+"BT3","time_bright","time_bright > 600 is impossible under a 10-min LDT scoring window",0
+"BT3","mov_total","mov_total > 480 is flagged for NTT scoring-window audit",0
+"BT3","stratum_pref","stratum_pref must be between 0 and 100 when non-missing",0
+"BT3","pH","pH values outside 0-14 are impossible",0

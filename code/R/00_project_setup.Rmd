@@ -1,0 +1,654 @@
+---
+title: "00 Project Setup"
+subtitle: "Zebrafish Sequential Behavioral Battery — Analysis Foundation"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE
+)
+```
+
+# Question
+
+What conventions, paths, endpoint roles, analysis rules, and output names should every downstream notebook follow?
+
+# Why this notebook exists
+
+This notebook establishes the project foundation for the zebrafish sequential behavioral battery analysis. It does not inspect the data and it does not run biological inference. Its job is to define the working vocabulary used by the remaining notebooks.
+
+The analysis uses an endpoint registry instead of a primary/secondary hierarchy. Each variable is classified by practical role: whether it is included in the PCA, tested in endpoint-level models, compared across battery contexts, used as a covariate/QC variable, or excluded.
+
+# What assumptions matter
+
+The repository uses the existing folder structure. The Python wrangling notebook writes battery-level files into `data_processed/`, and Notebook 01 audits those files before inference. This is a project convention, not a statistical claim.
+
+PCA uses one fixed full-battery endpoint set. PCA axes are interpreted from the loadings after the analysis is run. No PCA component label is assigned in advance.
+
+# What decision this supports
+
+This notebook supports all downstream notebooks by exporting the path map, package manifest, endpoint registry, model-decision rules, PCA variable plan, and global conventions.
+
+# 00.1 Project identity
+
+```{r project-identity}
+project_identity <- data.frame(
+  field = c(
+    "project_title",
+    "study_system",
+    "design_summary",
+    "analysis_scope",
+    "pca_scope",
+    "manuscript_scope"
+  ),
+  value = c(
+    "Sequential zebrafish behavioral battery exposed to ethanol",
+    "Adult Danio rerio exposed to EtOH and assessed through sequential behavioral tests",
+    "EtOH treatment concentrations 0, 0.5, and 1 crossed with exposure durations 1h, 24h, and 96h",
+    "Data wrangling, QC, endpoint-level treatment x exposure models, battery-context comparisons, one PCA, robustness checks, and manuscript outputs",
+    "Single BT1 full-battery PCA using the agreed endpoint set; axes interpreted from loadings",
+    "Publication-ready analysis of the research"
+  ),
+  stringsAsFactors = FALSE
+)
+
+project_identity
+```
+
+# 00.2 Folder map
+
+The folder map follows the current repository layout. No folder refactor is required for the analysis.
+
+```{r folder-map}
+find_project_root <- function(start = getwd()) {
+  current <- normalizePath(start, winslash = "/", mustWork = FALSE)
+  candidates <- c(current, dirname(current))
+  previous <- ""
+  while (!identical(tail(candidates, 1), previous)) {
+    previous <- tail(candidates, 1)
+    parent <- dirname(previous)
+    if (!identical(parent, previous)) {
+      candidates <- c(candidates, parent)
+    } else {
+      break
+    }
+  }
+
+  for (candidate in unique(candidates)) {
+    has_rproj <- length(list.files(candidate, pattern = "\\.Rproj$", full.names = TRUE)) > 0
+    has_git <- dir.exists(file.path(candidate, ".git"))
+    has_data_dirs <- dir.exists(file.path(candidate, "data_raw")) && dir.exists(file.path(candidate, "data_processed"))
+    if (has_rproj || has_git || has_data_dirs) {
+      return(candidate)
+    }
+  }
+
+  current
+}
+
+PROJECT_ROOT <- find_project_root()
+
+paths <- list(
+  project_root = PROJECT_ROOT,
+  data_raw = file.path(PROJECT_ROOT, "data_raw"),
+  data_processed = file.path(PROJECT_ROOT, "data_processed"),
+  docs = file.path(PROJECT_ROOT, "docs"),
+  notebooks = file.path(PROJECT_ROOT, "notebooks"),
+  python = file.path(PROJECT_ROOT, "python"),
+  r_helpers = file.path(PROJECT_ROOT, "R"),
+  outputs = file.path(PROJECT_ROOT, "outputs"),
+  outputs_tables = file.path(PROJECT_ROOT, "outputs", "tables"),
+  outputs_models = file.path(PROJECT_ROOT, "outputs", "models"),
+  outputs_figures = file.path(PROJECT_ROOT, "outputs", "figures"),
+  outputs_logs = file.path(PROJECT_ROOT, "outputs", "logs"),
+  archive = file.path(PROJECT_ROOT, "archive")
+)
+
+for (path in paths) {
+  if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+}
+
+path_map <- data.frame(
+  name = names(paths),
+  path = unlist(paths, use.names = FALSE),
+  exists = vapply(paths, dir.exists, logical(1)),
+  stringsAsFactors = FALSE
+)
+
+path_map
+```
+
+```{r save-path-map}
+write.csv(
+  path_map,
+  file = file.path(paths$outputs_logs, "00_path_map.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.3 Expected project files
+
+These files are expected by downstream notebooks once the full pipeline is run from the beginning. This notebook does not require all of them to exist yet.
+
+```{r expected-files}
+expected_files <- data.frame(
+  stage = c(
+    "wrangling_input",
+    "wrangling_output",
+    "wrangling_output",
+    "wrangling_output",
+    "wrangling_log",
+    "wrangling_log",
+    "audit_output",
+    "audit_output",
+    "audit_output",
+    "registry_output",
+    "model_output",
+    "battery_output",
+    "pca_output"
+  ),
+  file = c(
+    "data_raw/masters_data.csv",
+    "data_processed/battery_suite_1.csv",
+    "data_processed/battery_suite_2.csv",
+    "data_processed/battery_suite_3.csv",
+    "outputs/logs/wrangling_exclusion_log.csv",
+    "outputs/logs/wrangling_qc_log.csv",
+    "data_processed/bt1_audited.csv",
+    "data_processed/bt2_audited.csv",
+    "data_processed/bt3_audited.csv",
+    "outputs/logs/02_endpoint_registry.csv",
+    "outputs/models/03_ethanol_model_results.csv",
+    "outputs/models/04_battery_effect_results.csv",
+    "outputs/models/05_pca_model_summary.csv"
+  ),
+  required_before_notebook = c(
+    "00W", "01", "01", "01", "01", "01", "02", "02", "02", "03", "04", "05", "06"
+  ),
+  stringsAsFactors = FALSE
+)
+
+expected_files$full_path <- file.path(PROJECT_ROOT, expected_files$file)
+expected_files$exists_now <- file.exists(expected_files$full_path)
+
+expected_files
+```
+
+```{r save-expected-files}
+write.csv(
+  expected_files,
+  file = file.path(paths$outputs_logs, "00_expected_files.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.4 Package map
+
+Packages are grouped by use. This notebook records package requirements but does not install packages automatically.
+
+```{r package-map}
+package_manifest <- data.frame(
+  package = c(
+    "readr", "dplyr", "tidyr", "stringr", "purrr", "tibble",
+    "ggplot2", "patchwork", "ggrepel",
+    "broom", "car", "ARTool", "rstatix", "emmeans", "effectsize", "boot",
+    "logistf", "MASS", "coin",
+    "FactoMineR", "factoextra", "psych",
+    "knitr", "kableExtra", "rmarkdown"
+  ),
+  role = c(
+    rep("data handling", 6),
+    rep("figures", 3),
+    rep("models and diagnostics", 7),
+    rep("binary/count/nonparametric support", 3),
+    rep("PCA", 3),
+    rep("reporting", 3)
+  ),
+  required_now = c(
+    TRUE, TRUE, TRUE, TRUE, TRUE, TRUE,
+    TRUE, FALSE, FALSE,
+    TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
+    FALSE, FALSE, FALSE,
+    FALSE, FALSE, FALSE,
+    TRUE, FALSE, TRUE
+  ),
+  stringsAsFactors = FALSE
+)
+
+package_manifest$installed <- vapply(
+  package_manifest$package,
+  function(pkg) requireNamespace(pkg, quietly = TRUE),
+  logical(1)
+)
+
+package_manifest
+```
+
+```{r save-package-map}
+write.csv(
+  package_manifest,
+  file = file.path(paths$outputs_logs, "00_package_manifest.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.5 Global conventions
+
+```{r global-conventions}
+conventions <- data.frame(
+  convention = c(
+    "treatment_levels",
+    "exposure_levels",
+    "battery_labels",
+    "factorial_model_target",
+    "battery_comparison_unit",
+    "pca_rule",
+    "condition_factor_rule",
+    "non_significant_battery_wording"
+  ),
+  value = c(
+    "0, 0.5, 1",
+    "1h, 24h, 96h",
+    "BT1, BT2, BT3",
+    "outcome ~ treatment * exposure",
+    "endpoint within treatment x exposure cell across comparable battery contexts",
+    "one full-battery PCA using the agreed PCA endpoint set; axes interpreted from loadings",
+    "Kc, Kf, and condition_factor are treated as condition factor (K) if formula and range are valid",
+    "inconclusive unless equivalence is supported by a predefined SESOI"
+  ),
+  stringsAsFactors = FALSE
+)
+
+TREATMENT_LEVELS <- c("0", "0.5", "1")
+EXPOSURE_LEVELS <- c("1h", "24h", "96h")
+BATTERY_LEVELS <- c("BT1", "BT2", "BT3")
+
+battery_definitions <- data.frame(
+  battery = BATTERY_LEVELS,
+  meaning = c(
+    "full sequential battery context",
+    "alternative or isolated LDT/NTT context, depending on endpoint",
+    "isolated endurance context"
+  ),
+  stringsAsFactors = FALSE
+)
+
+conventions
+battery_definitions
+```
+
+```{r save-conventions}
+write.csv(
+  conventions,
+  file = file.path(paths$outputs_logs, "00_global_conventions.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  battery_definitions,
+  file = file.path(paths$outputs_logs, "00_battery_definitions.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.6 Endpoint registry
+
+The endpoint registry replaces primary/secondary hierarchy. The registry records what each variable is used for. PCA inclusion is independent of endpoint-model status.
+
+```{r endpoint-registry}
+endpoint_registry <- data.frame(
+  variable = c(
+    "dist_total",
+    "mov_total",
+    "vel_mean",
+    "stratum_pref",
+    "time_bright",
+    "first_choice_binary",
+    "latency",
+    "mtpc",
+    "num_changes",
+    "resistance_index",
+    "attempts",
+    "last_flux",
+    "time_in_last_flux",
+    "blood_sugar",
+    "condition_factor_K",
+    "weight",
+    "length",
+    "sex",
+    "fish_id",
+    "battery",
+    "treatment",
+    "exposure",
+    "datetime"
+  ),
+  domain = c(
+    "NTT locomotion",
+    "NTT locomotion",
+    "NTT locomotion",
+    "NTT spatial position",
+    "LDT phototaxis",
+    "LDT first choice",
+    "LDT decision latency",
+    "LDT transition behavior",
+    "LDT transition behavior",
+    "endurance",
+    "endurance",
+    "endurance",
+    "endurance",
+    "physiology",
+    "biometry/condition",
+    "biometry/QC",
+    "biometry/QC",
+    "biometry/QC",
+    "metadata/design",
+    "metadata/design",
+    "metadata/design",
+    "metadata/design",
+    "metadata/design"
+  ),
+  source_test = c(
+    "NTT", "NTT", "NTT", "NTT",
+    "LDT", "LDT", "LDT", "LDT", "LDT",
+    "RN", "RN", "RN", "RN",
+    "post-test physiology", "biometry",
+    "biometry", "biometry", "biometry",
+    "metadata", "metadata", "metadata", "metadata", "metadata"
+  ),
+  data_type = c(
+    "continuous", "continuous derived", "continuous derived", "bounded/proportion-like",
+    "bounded continuous", "binary", "continuous or censored", "continuous derived", "count",
+    "continuous derived", "count", "ordinal/step", "bounded continuous",
+    "continuous", "continuous derived",
+    "continuous", "continuous", "categorical",
+    "identifier", "design", "design", "design", "datetime"
+  ),
+  pca_included = c(
+    "yes", "yes", "yes", "yes",
+    "yes", "yes_if_coding_valid", "yes", "yes", "yes",
+    "yes", "yes", "no_by_default", "no_by_default",
+    "yes_if_retention_acceptable", "yes_if_valid",
+    "no_by_default", "no_by_default", "no_by_default",
+    "no", "no", "no", "no", "no"
+  ),
+  endpoint_model = c(
+    "yes", "yes_if_justified", "yes_if_justified", "yes",
+    "yes", "yes_if_feasible", "yes_if_justified", "yes_if_justified", "yes_if_justified",
+    "yes", "yes_if_justified", "yes_if_justified", "yes_if_justified",
+    "optional_supportive", "usually_no",
+    "covariate_or_QC", "covariate_or_QC", "covariate_or_QC",
+    "no", "no", "no", "no", "no"
+  ),
+  battery_comparison = c(
+    "yes_if_comparable", "yes_if_comparable", "yes_if_comparable", "yes_if_comparable",
+    "yes_if_comparable", "yes_if_comparable", "yes_if_comparable", "yes_if_comparable", "yes_if_comparable",
+    "BT1_vs_BT3_if_comparable", "BT1_vs_BT3_if_comparable", "BT1_vs_BT3_if_comparable", "BT1_vs_BT3_if_comparable",
+    "if_comparable", "usually_no",
+    "no", "no", "no",
+    "no", "no", "no", "no", "no"
+  ),
+  notes = c(
+    "total distance traveled",
+    "total movement time; can overlap with distance and velocity",
+    "mean locomotor intensity; no primary/secondary label used",
+    "upper/lower stratum preference or exploration",
+    "bright compartment time; raw time or proportion must be documented",
+    "bright/dark first choice; no-choice handling must be explicit",
+    "latency to first choice; check no-choice and zero behavior",
+    "mean time per choice or entry; derived from LDT variables",
+    "compartment changes; inspect count assumptions if modeled",
+    "validated manuscript endurance variable",
+    "number of resistance attempts",
+    "supportive endurance endpoint, not part of the fixed PCA set unless revised",
+    "supportive endurance endpoint, not part of the fixed PCA set unless revised",
+    "supportive physiological endpoint; report PCA retained N",
+    "condition factor (K); accept Kc/Kf/condition_factor if formula and range pass audit",
+    "used for QC and condition factor calculation",
+    "used for QC and condition factor calculation",
+    "used for descriptive or exploratory checks only if sample size supports it",
+    "identifier, never modeled as outcome or PCA variable",
+    "battery grouping variable",
+    "experimental factor",
+    "experimental factor",
+    "batch/time audit variable"
+  ),
+  stringsAsFactors = FALSE
+)
+
+endpoint_registry
+```
+
+```{r save-endpoint-registry}
+write.csv(
+  endpoint_registry,
+  file = file.path(paths$outputs_logs, "00_endpoint_registry.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.7 PCA variable plan
+
+The PCA uses one full-battery endpoint set from BT1. It does not include every dataset column; it includes the agreed endpoint-level variables from the research design.
+
+```{r pca-variable-plan}
+pca_variable_plan <- endpoint_registry[endpoint_registry$pca_included %in% c(
+  "yes", "yes_if_coding_valid", "yes_if_retention_acceptable", "yes_if_valid"
+), c("variable", "domain", "source_test", "data_type", "pca_included", "notes")]
+
+pca_variable_plan$planned_pca_rule <- ifelse(
+  pca_variable_plan$pca_included == "yes",
+  "include",
+  ifelse(
+    pca_variable_plan$pca_included == "yes_if_coding_valid",
+    "include if coding and no-choice handling are documented",
+    ifelse(
+      pca_variable_plan$pca_included == "yes_if_retention_acceptable",
+      "include if retained complete-case N remains acceptable",
+      "include if formula and range audit confirm valid condition factor"
+    )
+  )
+)
+
+pca_variable_plan
+```
+
+```{r save-pca-variable-plan}
+write.csv(
+  pca_variable_plan,
+  file = file.path(paths$outputs_logs, "00_pca_variable_plan.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.8 Statistical decision rules
+
+```{r statistical-decision-rules}
+statistical_decision_rules <- data.frame(
+  analysis_layer = c(
+    "endpoint_models",
+    "binary_endpoint",
+    "count_endpoints",
+    "bounded_or_proportion_like_endpoints",
+    "battery_comparison",
+    "equivalence",
+    "PCA",
+    "PCA_scores",
+    "condition_factor",
+    "multiple_testing",
+    "interpretation"
+  ),
+  rule = c(
+    "Use treatment x exposure models for model-tested endpoints when assumptions and data structure allow.",
+    "Model first_choice_binary only if coding and separation diagnostics support it; otherwise summarize descriptively or use exact/Firth-type strategy.",
+    "Inspect overdispersion before selecting count models for num_changes, attempts, or related endpoints.",
+    "Document whether raw bounded time or proportion is used; do not switch silently.",
+    "Compare only endpoints with comparable protocol meaning across battery contexts, within treatment x exposure cells.",
+    "Do not claim equivalence without a predefined SESOI and formal equivalence analysis.",
+    "Run one full-battery PCA with the agreed endpoint set; center and scale variables; interpret axes from loadings.",
+    "PC-score models or summaries are exploratory annotations of PCA space and do not replace endpoint models.",
+    "Treat Kc, Kf, and condition_factor as condition factor (K) if formula and units are sound.",
+    "Apply BH-FDR within declared output families where multiple tests are interpreted together.",
+    "Interpret narrowly by endpoint, domain, and model; avoid primary/secondary wording."
+  ),
+  downstream_notebook = c(
+    "03", "03", "02/03", "02/03", "04", "04", "05", "05/06", "01/05/06", "03/04/05", "all"
+  ),
+  stringsAsFactors = FALSE
+)
+
+statistical_decision_rules
+```
+
+```{r save-statistical-decision-rules}
+write.csv(
+  statistical_decision_rules,
+  file = file.path(paths$outputs_logs, "00_statistical_decision_rules.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.9 Model-readiness template
+
+Notebook 02 will populate this structure after loading audited datasets.
+
+```{r model-readiness-template}
+model_readiness_template <- data.frame(
+  variable = endpoint_registry$variable,
+  endpoint_model = endpoint_registry$endpoint_model,
+  data_type = endpoint_registry$data_type,
+  diagnostics_needed = c(
+    "distribution, variance, outlier influence",
+    "distribution, variance, outlier influence",
+    "distribution, variance, outlier influence",
+    "bounded range, distribution, variance",
+    "bounded range, duration consistency, distribution",
+    "separation, no-choice handling, cell counts",
+    "zero/censoring, no-choice handling, distribution",
+    "derived-variable audit, zero denominator handling",
+    "overdispersion, zero inflation, cell counts",
+    "derived-variable audit, distribution, outlier influence",
+    "overdispersion, zero inflation, cell counts",
+    "ordinal/step behavior, cell counts",
+    "bounded duration, cell counts",
+    "missingness, distribution, timing context",
+    "formula/range audit, weight-length source check",
+    "range/QC only",
+    "range/QC only",
+    "sample-size balance before exploratory use",
+    rep("metadata/design only", 5)
+  ),
+  stringsAsFactors = FALSE
+)
+
+model_readiness_template
+```
+
+```{r save-model-readiness-template}
+write.csv(
+  model_readiness_template,
+  file = file.path(paths$outputs_logs, "00_model_readiness_template.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.10 Output naming conventions
+
+```{r output-naming-conventions}
+output_naming_conventions <- data.frame(
+  layer = c(
+    "wrangling", "wrangling", "wrangling",
+    "audit", "audit", "audit", "audit",
+    "registry", "models", "battery", "pca", "robustness", "reporting"
+  ),
+  file_pattern = c(
+    "data_processed/battery_suite_1.csv",
+    "data_processed/battery_suite_2.csv",
+    "data_processed/battery_suite_3.csv",
+    "data_processed/bt1_audited.csv",
+    "data_processed/bt2_audited.csv",
+    "data_processed/bt3_audited.csv",
+    "outputs/logs/01_qc_*.csv",
+    "outputs/logs/02_*.csv",
+    "outputs/models/03_*.csv",
+    "outputs/models/04_*.csv",
+    "outputs/models/05_*.csv and outputs/figures/05_*.png",
+    "outputs/models/06_*.csv",
+    "outputs/tables/07_*.csv and outputs/figures/07_*.png"
+  ),
+  rule = c(
+    "BT1 battery-level file from Python wrangling",
+    "BT2 battery-level file from Python wrangling",
+    "BT3 battery-level file from Python wrangling",
+    "Notebook 01 audited BT1 dataset",
+    "Notebook 01 audited BT2 dataset",
+    "Notebook 01 audited BT3 dataset",
+    "Notebook 01 QC logs and summaries",
+    "Notebook 02 endpoint registry and model-readiness outputs",
+    "Notebook 03 endpoint-model outputs",
+    "Notebook 04 battery-comparison outputs",
+    "Notebook 05 PCA outputs and figures",
+    "Notebook 06 concordance, robustness, and stability outputs",
+    "Notebook 07 manuscript-ready artifacts"
+  ),
+  stringsAsFactors = FALSE
+)
+
+output_naming_conventions
+```
+
+```{r save-output-naming-conventions}
+write.csv(
+  output_naming_conventions,
+  file = file.path(paths$outputs_logs, "00_output_naming_conventions.csv"),
+  row.names = FALSE
+)
+```
+
+# 00.11 Final setup checklist
+
+```{r final-checklist}
+setup_checklist <- data.frame(
+  item = c(
+    "repo_structure_matches_current_layout",
+    "path_map_created",
+    "package_manifest_created",
+    "global_conventions_created",
+    "endpoint_registry_created",
+    "pca_variable_plan_created",
+    "statistical_decision_rules_created",
+    "output_naming_conventions_created",
+    "no_primary_secondary_hierarchy_used",
+    "single_pca_rule_locked"
+  ),
+  status = c(
+    TRUE,
+    file.exists(file.path(paths$outputs_logs, "00_path_map.csv")),
+    file.exists(file.path(paths$outputs_logs, "00_package_manifest.csv")),
+    file.exists(file.path(paths$outputs_logs, "00_global_conventions.csv")),
+    file.exists(file.path(paths$outputs_logs, "00_endpoint_registry.csv")),
+    file.exists(file.path(paths$outputs_logs, "00_pca_variable_plan.csv")),
+    file.exists(file.path(paths$outputs_logs, "00_statistical_decision_rules.csv")),
+    file.exists(file.path(paths$outputs_logs, "00_output_naming_conventions.csv")),
+    TRUE,
+    TRUE
+  ),
+  stringsAsFactors = FALSE
+)
+
+setup_checklist
+```
+
+# Completion statement
+
+Notebook 00 defines the working structure for the analysis. The next notebook, `01_data_audit_and_qc.Rmd`, should load the wrangled battery files from `data_processed/`, audit usability, and save audited datasets for model-readiness checks.

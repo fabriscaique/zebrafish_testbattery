@@ -1,0 +1,16 @@
+layer,item,expected_path,exists,audit_status
+repo_structure,data_raw,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_raw,TRUE,present
+repo_structure,data_processed,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/data_processed,TRUE,present
+repo_structure,docs,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/docs,TRUE,present
+repo_structure,notebooks,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks,TRUE,present
+repo_structure,outputs,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs,TRUE,present
+repo_structure,python,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/python,TRUE,present
+repo_structure,R,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/R,TRUE,present
+repo_structure,README.md,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/README.md,TRUE,present
+notebook,python/00_data_wrangling.ipynb,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/python/00_data_wrangling.ipynb,FALSE,missing
+notebook,notebooks/00_project_setup.Rmd,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/00_project_setup.Rmd,FALSE,missing
+notebook,notebooks/01_data_audit_and_qc.Rmd,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/01_data_audit_and_qc.Rmd,FALSE,missing
+notebook,notebooks/02_endpoint_hierarchy_and_assumptions.Rmd,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/02_endpoint_hierarchy_and_assumptions.Rmd,FALSE,missing
+notebook,notebooks/03_ethanol_factorial_models.Rmd,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/03_ethanol_factorial_models.Rmd,FALSE,missing
+notebook,notebooks/04_battery_effect_analysis.Rmd,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/04_battery_effect_analysis.Rmd,FALSE,missing
+notebook,notebooks/05_multivariate_pca_structure.Rmd,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/notebooks/05_multivariate_pca_structure.Rmd,FALSE,missing

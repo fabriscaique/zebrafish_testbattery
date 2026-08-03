@@ -1,0 +1,4 @@
+"battery","meaning"
+"BT1","full sequential battery context"
+"BT2","alternative or isolated LDT/NTT context, depending on endpoint"
+"BT3","isolated endurance context"

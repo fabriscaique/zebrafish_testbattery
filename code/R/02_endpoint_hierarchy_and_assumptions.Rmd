@@ -1,0 +1,1145 @@
+---
+title: "02 Endpoint Registry and Model Readiness"
+subtitle: "Zebrafish Sequential Behavioral Battery — Endpoint Roles, Assumptions, and Model-Family Decisions"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE
+)
+```
+
+# Question
+
+Given the audited BT1, BT2, and BT3 datasets, which endpoint variables are available, what are their practical roles, and which model-readiness flags should be carried forward into the endpoint-level, battery-comparison, PCA, and robustness notebooks?
+
+# Why this notebook exists
+
+This notebook turns the audited datasets into a working endpoint registry for analysis.
+
+The project does not use a primary/secondary endpoint hierarchy. Endpoints are handled by practical role:
+
+- PCA-included endpoint.
+- Endpoint-model candidate.
+- Battery-comparison candidate.
+- Covariate or QC-only variable.
+- Excluded or unavailable variable.
+
+This notebook does not test ethanol effects, battery-context effects, PCA structure, equivalence, or manuscript-level conclusions. Its job is to make downstream modeling deliberate rather than method-driven.
+
+# What assumptions matter
+
+This notebook assumes that `01_data_audit_and_qc.Rmd` has already produced audited datasets:
+
+- `data_processed/bt1_audited.csv`
+- `data_processed/bt2_audited.csv`
+- `data_processed/bt3_audited.csv`
+
+It also uses setup outputs from `00_project_setup.Rmd` when available:
+
+- `outputs/logs/00_endpoint_registry.csv`
+- `outputs/logs/00_pca_variable_plan.csv`
+- `outputs/logs/00_global_conventions.csv`
+
+If setup outputs are missing, local fallback definitions are used so the notebook remains executable.
+
+# What decision this supports
+
+This notebook produces the endpoint registry, descriptive tables, assumption diagnostics, and model-readiness matrix used by:
+
+- `03_ethanol_factorial_models.Rmd`
+- `04_battery_effect_analysis.Rmd`
+- `05_multivariate_pca_structure.Rmd`
+- `06_sensitivity_and_robustness.Rmd`
+- later reporting and methods notebooks
+
+The output of this notebook is not a Results section. It is a pre-modeling decision layer.
+
+---
+
+# 02.1 Load audited data
+
+```{r project-root}
+find_project_root <- function(start = getwd()) {
+  current <- normalizePath(start, winslash = "/", mustWork = FALSE)
+  candidates <- c(current, dirname(current))
+  previous <- ""
+
+  while (!identical(tail(candidates, 1), previous)) {
+    previous <- tail(candidates, 1)
+    parent <- dirname(previous)
+    if (!identical(parent, previous)) {
+      candidates <- c(candidates, parent)
+    } else {
+      break
+    }
+  }
+
+  for (candidate in unique(candidates)) {
+    has_rproj <- length(list.files(candidate, pattern = "\\.Rproj$", full.names = TRUE)) > 0
+    has_git <- dir.exists(file.path(candidate, ".git"))
+    has_data_dirs <- dir.exists(file.path(candidate, "data_raw")) && dir.exists(file.path(candidate, "data_processed"))
+    if (has_rproj || has_git || has_data_dirs) {
+      return(candidate)
+    }
+  }
+
+  current
+}
+
+PROJECT_ROOT <- find_project_root()
+
+paths <- list(
+  project_root = PROJECT_ROOT,
+  data_processed = file.path(PROJECT_ROOT, "data_processed"),
+  outputs = file.path(PROJECT_ROOT, "outputs"),
+  outputs_logs = file.path(PROJECT_ROOT, "outputs", "logs"),
+  outputs_tables = file.path(PROJECT_ROOT, "outputs", "tables"),
+  outputs_figures = file.path(PROJECT_ROOT, "outputs", "figures"),
+  outputs_models = file.path(PROJECT_ROOT, "outputs", "models")
+)
+
+for (path in paths) {
+  if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+}
+
+paths
+```
+
+```{r helper-functions}
+read_csv_required <- function(path) {
+  if (!file.exists(path)) stop("Required file not found: ", path)
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+read_csv_optional <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+write_output <- function(df, filename, folder = paths$outputs_logs) {
+  path <- file.path(folder, filename)
+  write.csv(df, path, row.names = FALSE)
+  path
+}
+
+safe_numeric <- function(x) {
+  suppressWarnings(as.numeric(x))
+}
+
+safe_mean <- function(x) {
+  x <- safe_numeric(x)
+  if (all(is.na(x))) return(NA_real_)
+  mean(x, na.rm = TRUE)
+}
+
+safe_sd <- function(x) {
+  x <- safe_numeric(x)
+  if (sum(!is.na(x)) < 2) return(NA_real_)
+  sd(x, na.rm = TRUE)
+}
+
+safe_median <- function(x) {
+  x <- safe_numeric(x)
+  if (all(is.na(x))) return(NA_real_)
+  median(x, na.rm = TRUE)
+}
+
+safe_iqr <- function(x) {
+  x <- safe_numeric(x)
+  if (all(is.na(x))) return(NA_real_)
+  IQR(x, na.rm = TRUE)
+}
+
+safe_min <- function(x) {
+  x <- safe_numeric(x)
+  if (all(is.na(x))) return(NA_real_)
+  min(x, na.rm = TRUE)
+}
+
+safe_max <- function(x) {
+  x <- safe_numeric(x)
+  if (all(is.na(x))) return(NA_real_)
+  max(x, na.rm = TRUE)
+}
+
+as_bool <- function(x) {
+  if (is.logical(x)) return(x)
+  if (is.numeric(x)) return(x == 1)
+  tolower(as.character(x)) %in% c("true", "1", "yes", "y")
+}
+
+combine_datasets <- function(datasets) {
+  all_cols <- unique(unlist(lapply(datasets, names)))
+  aligned <- lapply(datasets, function(df) {
+    missing_cols <- setdiff(all_cols, names(df))
+    for (col in missing_cols) df[[col]] <- NA
+    df[, all_cols, drop = FALSE]
+  })
+  do.call(rbind, aligned)
+}
+
+standardize_exposure <- function(x) {
+  y <- trimws(as.character(x))
+  y <- ifelse(y %in% c("1", "1h", "1H"), "1h", y)
+  y <- ifelse(y %in% c("24", "24h", "24H"), "24h", y)
+  y <- ifelse(y %in% c("96", "96h", "96H"), "96h", y)
+  factor(y, levels = c("1h", "24h", "96h"))
+}
+
+standardize_factors <- function(df) {
+  if ("treatment" %in% names(df)) {
+    df$treatment <- factor(as.character(df$treatment), levels = c("0", "0.5", "1"))
+  }
+  if ("exposure" %in% names(df)) {
+    df$exposure <- standardize_exposure(df$exposure)
+  }
+  if ("battery" %in% names(df)) {
+    df$battery <- factor(as.character(df$battery), levels = c("BT1", "BT2", "BT3"))
+  }
+  if ("source_battery_file" %in% names(df)) {
+    df$source_battery_file <- factor(as.character(df$source_battery_file), levels = c("BT1", "BT2", "BT3"))
+  }
+  df
+}
+
+first_existing_column <- function(df, candidates) {
+  hit <- candidates[candidates %in% names(df)]
+  if (length(hit) == 0) return(NA_character_)
+  hit[1]
+}
+
+resolve_variable <- function(variable, df) {
+  if (variable %in% names(df)) return(variable)
+  if (variable == "condition_factor_K") {
+    return(first_existing_column(df, c("condition_factor_K", "Kc", "Kf", "kf", "condition_factor", "fulton_k")))
+  }
+  if (variable == "resistance_index") {
+    return(first_existing_column(df, c("resistance_index", "irn_computed", "IRN", "irn")))
+  }
+  if (variable == "weight") {
+    return(first_existing_column(df, c("weight", "wt", "Wt", "mass")))
+  }
+  if (variable == "length") {
+    return(first_existing_column(df, c("length", "lt", "Lt", "ls", "Ls", "standard_length")))
+  }
+  NA_character_
+}
+
+shapiro_safe <- function(x) {
+  x <- safe_numeric(x)
+  x <- x[!is.na(x)]
+
+  if (length(x) < 3) {
+    return(list(n = length(x), statistic = NA_real_, p_value = NA_real_, note = "n < 3; Shapiro-Wilk not run."))
+  }
+  if (length(x) > 5000) {
+    return(list(n = length(x), statistic = NA_real_, p_value = NA_real_, note = "n > 5000; Shapiro-Wilk not run."))
+  }
+  if (length(unique(x)) < 3) {
+    return(list(n = length(x), statistic = NA_real_, p_value = NA_real_, note = "Fewer than 3 unique values; Shapiro-Wilk not meaningful."))
+  }
+
+  result <- tryCatch(shapiro.test(x), error = function(e) NULL)
+  if (is.null(result)) {
+    return(list(n = length(x), statistic = NA_real_, p_value = NA_real_, note = "Shapiro-Wilk failed."))
+  }
+
+  list(n = length(x), statistic = unname(result$statistic), p_value = result$p.value, note = "Shapiro-Wilk run.")
+}
+
+variance_ratio_safe <- function(x, group) {
+  x <- safe_numeric(x)
+  group <- as.character(group)
+  tmp <- data.frame(x = x, group = group, stringsAsFactors = FALSE)
+  tmp <- tmp[!is.na(tmp$x) & !is.na(tmp$group) & tmp$group != "", ]
+
+  if (nrow(tmp) == 0 || length(unique(tmp$group)) < 2) {
+    return(list(min_var = NA_real_, max_var = NA_real_, variance_ratio = NA_real_, note = "Insufficient groups."))
+  }
+
+  vars <- tapply(tmp$x, tmp$group, var, na.rm = TRUE)
+  vars <- vars[!is.na(vars)]
+
+  if (length(vars) < 2) {
+    return(list(min_var = NA_real_, max_var = NA_real_, variance_ratio = NA_real_, note = "Fewer than 2 valid group variances."))
+  }
+  if (min(vars) == 0) {
+    return(list(min_var = min(vars), max_var = max(vars), variance_ratio = Inf, note = "At least one group variance is zero."))
+  }
+
+  list(min_var = min(vars), max_var = max(vars), variance_ratio = max(vars) / min(vars), note = "Variance ratio computed.")
+}
+```
+
+```{r load-audited-files}
+bt1_path <- file.path(paths$data_processed, "bt1_audited.csv")
+bt2_path <- file.path(paths$data_processed, "bt2_audited.csv")
+bt3_path <- file.path(paths$data_processed, "bt3_audited.csv")
+
+bt1 <- read_csv_required(bt1_path)
+bt2 <- read_csv_required(bt2_path)
+bt3 <- read_csv_required(bt3_path)
+
+bt1$source_battery_file <- "BT1"
+bt2$source_battery_file <- "BT2"
+bt3$source_battery_file <- "BT3"
+
+bt1 <- standardize_factors(bt1)
+bt2 <- standardize_factors(bt2)
+bt3 <- standardize_factors(bt3)
+
+battery_data <- list(BT1 = bt1, BT2 = bt2, BT3 = bt3)
+all_batteries <- standardize_factors(combine_datasets(battery_data))
+
+load_summary <- data.frame(
+  dataset = c("bt1_audited", "bt2_audited", "bt3_audited", "all_batteries"),
+  rows = c(nrow(bt1), nrow(bt2), nrow(bt3), nrow(all_batteries)),
+  columns = c(ncol(bt1), ncol(bt2), ncol(bt3), ncol(all_batteries)),
+  stringsAsFactors = FALSE
+)
+
+write_output(load_summary, "02_loaded_audited_datasets.csv")
+load_summary
+```
+
+---
+
+# 02.2 Build endpoint registry
+
+This section loads the endpoint registry from Notebook 00 when available. The registry is then reconciled against the audited datasets so downstream notebooks know which variables are available and which actual column name should be used.
+
+```{r load-endpoint-registry}
+endpoint_registry <- read_csv_optional(file.path(paths$outputs_logs, "00_endpoint_registry.csv"))
+
+if (is.null(endpoint_registry)) {
+  endpoint_registry <- data.frame(
+    variable = c(
+      "dist_total", "mov_total", "vel_mean", "stratum_pref",
+      "time_bright", "first_choice_binary", "latency", "mtpc", "num_changes",
+      "resistance_index", "attempts", "last_flux", "time_in_last_flux",
+      "blood_sugar", "condition_factor_K", "weight", "length", "sex",
+      "fish_id", "battery", "treatment", "exposure", "datetime"
+    ),
+    domain = c(
+      "NTT locomotion", "NTT locomotion", "NTT locomotion", "NTT spatial position",
+      "LDT phototaxis", "LDT first choice", "LDT decision latency", "LDT transition behavior", "LDT transition behavior",
+      "endurance", "endurance", "endurance", "endurance",
+      "physiology", "biometry/condition", "biometry/QC", "biometry/QC", "biometry/QC",
+      "metadata/design", "metadata/design", "metadata/design", "metadata/design", "metadata/design"
+    ),
+    source_test = c(
+      "NTT", "NTT", "NTT", "NTT",
+      "LDT", "LDT", "LDT", "LDT", "LDT",
+      "RN", "RN", "RN", "RN",
+      "post-test physiology", "biometry", "biometry", "biometry", "biometry",
+      "metadata", "metadata", "metadata", "metadata", "metadata"
+    ),
+    data_type = c(
+      "continuous", "continuous derived", "continuous derived", "bounded/proportion-like",
+      "bounded continuous", "binary", "continuous or censored", "continuous derived", "count",
+      "continuous derived", "count", "ordinal/step", "bounded continuous",
+      "continuous", "continuous derived", "continuous", "continuous", "categorical",
+      "identifier", "design", "design", "design", "datetime"
+    ),
+    pca_included = c(
+      "yes", "yes", "yes", "yes",
+      "yes", "yes_if_coding_valid", "yes", "yes", "yes",
+      "yes", "yes", "no_by_default", "no_by_default",
+      "yes_if_retention_acceptable", "yes_if_valid", "no_by_default", "no_by_default", "no_by_default",
+      "no", "no", "no", "no", "no"
+    ),
+    endpoint_model = c(
+      "yes", "yes_if_justified", "yes_if_justified", "yes",
+      "yes", "yes_if_feasible", "yes_if_justified", "yes_if_justified", "yes_if_justified",
+      "yes", "yes_if_justified", "yes_if_justified", "yes_if_justified",
+      "optional_supportive", "usually_no", "covariate_or_QC", "covariate_or_QC", "covariate_or_QC",
+      "no", "no", "no", "no", "no"
+    ),
+    battery_comparison = c(
+      "yes_if_comparable", "yes_if_comparable", "yes_if_comparable", "yes_if_comparable",
+      "yes_if_comparable", "yes_if_comparable", "yes_if_comparable", "yes_if_comparable", "yes_if_comparable",
+      "BT1_vs_BT3_if_comparable", "BT1_vs_BT3_if_comparable", "BT1_vs_BT3_if_comparable", "BT1_vs_BT3_if_comparable",
+      "if_comparable", "usually_no", "no", "no", "no",
+      "no", "no", "no", "no", "no"
+    ),
+    notes = "local fallback registry",
+    stringsAsFactors = FALSE
+  )
+}
+
+required_registry_cols <- c("variable", "domain", "source_test", "data_type", "pca_included", "endpoint_model", "battery_comparison", "notes")
+missing_registry_cols <- setdiff(required_registry_cols, names(endpoint_registry))
+if (length(missing_registry_cols) > 0) {
+  stop("Endpoint registry is missing required columns: ", paste(missing_registry_cols, collapse = ", "))
+}
+
+endpoint_registry
+```
+
+```{r resolve-registry-availability}
+resolved_rows <- lapply(seq_len(nrow(endpoint_registry)), function(i) {
+  variable <- endpoint_registry$variable[i]
+  resolved_all <- resolve_variable(variable, all_batteries)
+  resolved_bt1 <- resolve_variable(variable, bt1)
+  resolved_bt2 <- resolve_variable(variable, bt2)
+  resolved_bt3 <- resolve_variable(variable, bt3)
+
+  nonmissing_count <- function(df, col) {
+    if (is.na(col) || !col %in% names(df)) return(0L)
+    sum(!is.na(df[[col]]) & as.character(df[[col]]) != "")
+  }
+
+  data.frame(
+    variable = variable,
+    resolved_variable_all = resolved_all,
+    resolved_variable_BT1 = resolved_bt1,
+    resolved_variable_BT2 = resolved_bt2,
+    resolved_variable_BT3 = resolved_bt3,
+    available_all = !is.na(resolved_all),
+    available_BT1 = !is.na(resolved_bt1) && nonmissing_count(bt1, resolved_bt1) > 0,
+    available_BT2 = !is.na(resolved_bt2) && nonmissing_count(bt2, resolved_bt2) > 0,
+    available_BT3 = !is.na(resolved_bt3) && nonmissing_count(bt3, resolved_bt3) > 0,
+    n_nonmissing_all = nonmissing_count(all_batteries, resolved_all),
+    n_nonmissing_BT1 = nonmissing_count(bt1, resolved_bt1),
+    n_nonmissing_BT2 = nonmissing_count(bt2, resolved_bt2),
+    n_nonmissing_BT3 = nonmissing_count(bt3, resolved_bt3),
+    stringsAsFactors = FALSE
+  )
+})
+
+registry_availability <- do.call(rbind, resolved_rows)
+endpoint_registry_resolved <- merge(endpoint_registry, registry_availability, by = "variable", all.x = TRUE)
+
+endpoint_registry_resolved$pca_candidate <- endpoint_registry_resolved$pca_included %in% c("yes", "yes_if_coding_valid", "yes_if_retention_acceptable", "yes_if_valid")
+endpoint_registry_resolved$model_candidate <- endpoint_registry_resolved$endpoint_model %in% c("yes", "yes_if_justified", "yes_if_feasible", "optional_supportive")
+endpoint_registry_resolved$battery_candidate <- !(endpoint_registry_resolved$battery_comparison %in% c("no", "usually_no"))
+endpoint_registry_resolved$available_any <- endpoint_registry_resolved$available_BT1 | endpoint_registry_resolved$available_BT2 | endpoint_registry_resolved$available_BT3
+
+write_output(endpoint_registry_resolved, "02_endpoint_registry.csv")
+write_output(endpoint_registry_resolved, "assumptions_endpoint_registry.csv")
+endpoint_registry_resolved
+```
+
+---
+
+# 02.3 Define endpoint types
+
+Endpoint type controls which diagnostics are meaningful. It does not impose a primary/secondary ranking.
+
+```{r endpoint-type-table}
+endpoint_type_table <- endpoint_registry_resolved[, c(
+  "variable", "resolved_variable_all", "domain", "source_test", "data_type",
+  "pca_included", "endpoint_model", "battery_comparison",
+  "available_BT1", "available_BT2", "available_BT3", "n_nonmissing_all"
+)]
+
+endpoint_type_table$analysis_role <- ifelse(
+  endpoint_type_table$pca_included %in% c("yes", "yes_if_coding_valid", "yes_if_retention_acceptable", "yes_if_valid") & endpoint_type_table$endpoint_model %in% c("yes", "yes_if_justified", "yes_if_feasible", "optional_supportive"),
+  "PCA_and_endpoint_model_candidate",
+  ifelse(
+    endpoint_type_table$pca_included %in% c("yes", "yes_if_coding_valid", "yes_if_retention_acceptable", "yes_if_valid"),
+    "PCA_candidate",
+    ifelse(
+      endpoint_type_table$endpoint_model %in% c("yes", "yes_if_justified", "yes_if_feasible", "optional_supportive"),
+      "endpoint_model_candidate",
+      "covariate_QC_or_design"
+    )
+  )
+)
+
+write_output(endpoint_type_table, "02_endpoint_type_table.csv")
+write_output(endpoint_type_table, "assumptions_endpoint_type_table.csv")
+endpoint_type_table
+```
+
+---
+
+# 02.4 Descriptive statistics
+
+Descriptive statistics are computed by battery, treatment, and exposure for available numeric endpoint/model/PCA variables. These tables describe the data structure; they do not test effects.
+
+```{r numeric-endpoints}
+numeric_type_patterns <- c("continuous", "bounded", "count", "ordinal", "step", "derived", "censored")
+
+numeric_registry <- endpoint_registry_resolved[
+  endpoint_registry_resolved$available_any &
+    !endpoint_registry_resolved$data_type %in% c("identifier", "design", "datetime", "categorical"),
+]
+
+numeric_registry <- numeric_registry[
+  grepl(paste(numeric_type_patterns, collapse = "|"), numeric_registry$data_type, ignore.case = TRUE),
+]
+
+numeric_registry <- numeric_registry[!is.na(numeric_registry$resolved_variable_all), ]
+numeric_registry
+```
+
+```{r descriptive-statistics}
+descriptive_stats <- do.call(
+  rbind,
+  lapply(seq_len(nrow(numeric_registry)), function(i) {
+    variable <- numeric_registry$variable[i]
+    resolved <- numeric_registry$resolved_variable_all[i]
+    df <- all_batteries
+    x <- safe_numeric(df[[resolved]])
+
+    tmp <- data.frame(
+      battery = as.character(df$source_battery_file),
+      treatment = as.character(df$treatment),
+      exposure = as.character(df$exposure),
+      variable = variable,
+      resolved_variable = resolved,
+      value = x,
+      stringsAsFactors = FALSE
+    )
+
+    groups <- split(tmp, list(tmp$battery, tmp$treatment, tmp$exposure, tmp$variable), drop = TRUE)
+
+    do.call(
+      rbind,
+      lapply(groups, function(g) {
+        data.frame(
+          battery = unique(g$battery)[1],
+          treatment = unique(g$treatment)[1],
+          exposure = unique(g$exposure)[1],
+          variable = unique(g$variable)[1],
+          resolved_variable = unique(g$resolved_variable)[1],
+          n_total = nrow(g),
+          n_nonmissing = sum(!is.na(g$value)),
+          n_missing = sum(is.na(g$value)),
+          mean = safe_mean(g$value),
+          sd = safe_sd(g$value),
+          median = safe_median(g$value),
+          iqr = safe_iqr(g$value),
+          min = safe_min(g$value),
+          max = safe_max(g$value),
+          stringsAsFactors = FALSE
+        )
+      })
+    )
+  })
+)
+
+write_output(descriptive_stats, "02_descriptive_statistics_by_cell.csv", paths$outputs_tables)
+write_output(descriptive_stats, "assumptions_descriptive_statistics_by_cell.csv", paths$outputs_tables)
+descriptive_stats
+```
+
+---
+
+# 02.5 Distribution diagnostics
+
+The plots below are visual diagnostics for model-tested and PCA-included numeric variables. They are not interpreted as treatment effects.
+
+```{r distribution-diagnostic-endpoints}
+diagnostic_registry <- numeric_registry[
+  numeric_registry$model_candidate | numeric_registry$pca_candidate,
+]
+
+diagnostic_registry <- diagnostic_registry[!duplicated(diagnostic_registry$variable), ]
+diagnostic_registry
+```
+
+```{r distribution-plots, fig.width=8, fig.height=4}
+plot_distribution_variable <- function(df, variable, resolved) {
+  if (is.na(resolved) || !resolved %in% names(df)) return(invisible(NULL))
+  x <- safe_numeric(df[[resolved]])
+  x <- x[!is.na(x)]
+
+  if (length(x) < 2) {
+    plot.new()
+    title(main = paste(variable, "- insufficient non-missing observations"))
+    return(invisible(NULL))
+  }
+
+  hist(
+    x,
+    main = paste("Distribution:", variable),
+    xlab = variable,
+    breaks = "FD",
+    col = "grey85",
+    border = "grey40"
+  )
+}
+
+for (i in seq_len(nrow(diagnostic_registry))) {
+  plot_distribution_variable(all_batteries, diagnostic_registry$variable[i], diagnostic_registry$resolved_variable_all[i])
+}
+```
+
+```{r boxplots-by-battery, fig.width=8, fig.height=4}
+plot_boxplot_variable <- function(df, variable, resolved) {
+  if (is.na(resolved) || !resolved %in% names(df)) return(invisible(NULL))
+  x <- safe_numeric(df[[resolved]])
+  battery <- as.character(df$source_battery_file)
+
+  tmp <- data.frame(value = x, battery = battery, stringsAsFactors = FALSE)
+  tmp <- tmp[!is.na(tmp$value) & !is.na(tmp$battery), ]
+
+  if (nrow(tmp) < 2 || length(unique(tmp$battery)) < 1) {
+    plot.new()
+    title(main = paste(variable, "- insufficient data for battery boxplot"))
+    return(invisible(NULL))
+  }
+
+  boxplot(
+    value ~ battery,
+    data = tmp,
+    main = paste(variable, "by battery"),
+    xlab = "Battery",
+    ylab = variable,
+    col = "grey90"
+  )
+}
+
+for (i in seq_len(nrow(diagnostic_registry))) {
+  plot_boxplot_variable(all_batteries, diagnostic_registry$variable[i], diagnostic_registry$resolved_variable_all[i])
+}
+```
+
+---
+
+# 02.6 Normality diagnostics
+
+Normality diagnostics are run by battery x treatment x exposure where there are enough observations. These diagnostics are screening information, not automatic test-selection rules.
+
+```{r normality-diagnostics}
+normality_diagnostics <- do.call(
+  rbind,
+  lapply(seq_len(nrow(numeric_registry)), function(i) {
+    variable <- numeric_registry$variable[i]
+    resolved <- numeric_registry$resolved_variable_all[i]
+    if (is.na(resolved) || !resolved %in% names(all_batteries)) return(NULL)
+
+    tmp <- data.frame(
+      battery = as.character(all_batteries$source_battery_file),
+      treatment = as.character(all_batteries$treatment),
+      exposure = as.character(all_batteries$exposure),
+      variable = variable,
+      resolved_variable = resolved,
+      value = safe_numeric(all_batteries[[resolved]]),
+      stringsAsFactors = FALSE
+    )
+
+    groups <- split(tmp, list(tmp$battery, tmp$treatment, tmp$exposure, tmp$variable), drop = TRUE)
+
+    do.call(
+      rbind,
+      lapply(groups, function(g) {
+        res <- shapiro_safe(g$value)
+        data.frame(
+          battery = unique(g$battery)[1],
+          treatment = unique(g$treatment)[1],
+          exposure = unique(g$exposure)[1],
+          variable = unique(g$variable)[1],
+          resolved_variable = unique(g$resolved_variable)[1],
+          n = res$n,
+          shapiro_w = res$statistic,
+          shapiro_p = res$p_value,
+          note = res$note,
+          stringsAsFactors = FALSE
+        )
+      })
+    )
+  })
+)
+
+normality_summary <- aggregate(
+  shapiro_p ~ variable,
+  data = normality_diagnostics[!is.na(normality_diagnostics$shapiro_p), ],
+  FUN = function(x) sum(x < 0.05, na.rm = TRUE)
+)
+
+if (nrow(normality_summary) > 0) {
+  names(normality_summary)[2] <- "n_cells_with_shapiro_p_below_0.05"
+} else {
+  normality_summary <- data.frame(variable = character(), n_cells_with_shapiro_p_below_0.05 = integer())
+}
+
+write_output(normality_diagnostics, "02_normality_by_cell.csv")
+write_output(normality_summary, "02_normality_summary.csv")
+write_output(normality_diagnostics, "assumptions_normality_by_cell.csv")
+write_output(normality_summary, "assumptions_normality_summary.csv")
+
+normality_diagnostics
+normality_summary
+```
+
+---
+
+# 02.7 Variance diagnostics
+
+Variance diagnostics are computed across treatment x exposure cells within each battery. Large variance ratios flag endpoints for robust or nonparametric sensitivity; they do not automatically invalidate endpoint models.
+
+```{r variance-diagnostics}
+variance_diagnostics <- do.call(
+  rbind,
+  lapply(seq_len(nrow(numeric_registry)), function(i) {
+    variable <- numeric_registry$variable[i]
+    resolved <- numeric_registry$resolved_variable_all[i]
+    if (is.na(resolved) || !resolved %in% names(all_batteries)) return(NULL)
+
+    do.call(
+      rbind,
+      lapply(names(battery_data), function(battery_name) {
+        df <- battery_data[[battery_name]]
+        if (!all(c("treatment", "exposure", resolved) %in% names(df))) {
+          return(data.frame(
+            battery = battery_name,
+            variable = variable,
+            resolved_variable = resolved,
+            min_var = NA_real_,
+            max_var = NA_real_,
+            variance_ratio = NA_real_,
+            note = "Required columns missing.",
+            stringsAsFactors = FALSE
+          ))
+        }
+
+        cell <- paste(as.character(df$treatment), as.character(df$exposure), sep = "_")
+        res <- variance_ratio_safe(df[[resolved]], cell)
+
+        data.frame(
+          battery = battery_name,
+          variable = variable,
+          resolved_variable = resolved,
+          min_var = res$min_var,
+          max_var = res$max_var,
+          variance_ratio = res$variance_ratio,
+          note = res$note,
+          stringsAsFactors = FALSE
+        )
+      })
+    )
+  })
+)
+
+write_output(variance_diagnostics, "02_variance_diagnostics.csv")
+write_output(variance_diagnostics, "assumptions_variance_diagnostics.csv")
+variance_diagnostics
+```
+
+---
+
+# 02.8 Zero-inflation audit
+
+Zero inflation matters most for latency, movement, and count-like endpoints. This audit records zeros by cell.
+
+```{r zero-inflation-audit}
+zero_candidates <- endpoint_registry_resolved[
+  endpoint_registry_resolved$available_any &
+    endpoint_registry_resolved$variable %in% c("latency", "dist_total", "mov_total", "vel_mean", "num_changes", "attempts", "time_bright", "mtpc"),
+]
+
+zero_inflation_audit <- do.call(
+  rbind,
+  lapply(seq_len(nrow(zero_candidates)), function(i) {
+    variable <- zero_candidates$variable[i]
+    resolved <- zero_candidates$resolved_variable_all[i]
+    if (is.na(resolved) || !resolved %in% names(all_batteries)) return(NULL)
+
+    tmp <- data.frame(
+      battery = as.character(all_batteries$source_battery_file),
+      treatment = as.character(all_batteries$treatment),
+      exposure = as.character(all_batteries$exposure),
+      variable = variable,
+      resolved_variable = resolved,
+      value = safe_numeric(all_batteries[[resolved]]),
+      stringsAsFactors = FALSE
+    )
+
+    groups <- split(tmp, list(tmp$battery, tmp$treatment, tmp$exposure, tmp$variable), drop = TRUE)
+
+    do.call(
+      rbind,
+      lapply(groups, function(g) {
+        nonmissing <- g$value[!is.na(g$value)]
+        data.frame(
+          battery = unique(g$battery)[1],
+          treatment = unique(g$treatment)[1],
+          exposure = unique(g$exposure)[1],
+          variable = unique(g$variable)[1],
+          resolved_variable = unique(g$resolved_variable)[1],
+          n_nonmissing = length(nonmissing),
+          n_zero = sum(nonmissing == 0),
+          prop_zero = ifelse(length(nonmissing) == 0, NA_real_, mean(nonmissing == 0)),
+          stringsAsFactors = FALSE
+        )
+      })
+    )
+  })
+)
+
+write_output(zero_inflation_audit, "02_zero_inflation_by_cell.csv")
+write_output(zero_inflation_audit, "assumptions_zero_inflation_by_cell.csv")
+zero_inflation_audit
+```
+
+---
+
+# 02.9 Count overdispersion audit
+
+This section screens count-like endpoints. It does not fit Poisson or negative-binomial models.
+
+```{r count-overdispersion}
+count_candidates <- endpoint_registry_resolved[
+  endpoint_registry_resolved$available_any & endpoint_registry_resolved$data_type %in% c("count", "ordinal/step"),
+]
+
+count_overdispersion <- do.call(
+  rbind,
+  lapply(seq_len(nrow(count_candidates)), function(i) {
+    variable <- count_candidates$variable[i]
+    resolved <- count_candidates$resolved_variable_all[i]
+    if (is.na(resolved) || !resolved %in% names(all_batteries)) return(NULL)
+
+    tmp <- data.frame(
+      battery = as.character(all_batteries$source_battery_file),
+      treatment = as.character(all_batteries$treatment),
+      exposure = as.character(all_batteries$exposure),
+      variable = variable,
+      resolved_variable = resolved,
+      value = safe_numeric(all_batteries[[resolved]]),
+      stringsAsFactors = FALSE
+    )
+
+    groups <- split(tmp, list(tmp$battery, tmp$treatment, tmp$exposure, tmp$variable), drop = TRUE)
+
+    do.call(
+      rbind,
+      lapply(groups, function(g) {
+        values <- g$value[!is.na(g$value)]
+        mean_value <- ifelse(length(values) == 0, NA_real_, mean(values))
+        variance_value <- ifelse(length(values) < 2, NA_real_, var(values))
+        dispersion_ratio <- ifelse(is.na(mean_value) || mean_value == 0, NA_real_, variance_value / mean_value)
+
+        data.frame(
+          battery = unique(g$battery)[1],
+          treatment = unique(g$treatment)[1],
+          exposure = unique(g$exposure)[1],
+          variable = unique(g$variable)[1],
+          resolved_variable = unique(g$resolved_variable)[1],
+          n = length(values),
+          mean = mean_value,
+          variance = variance_value,
+          variance_to_mean_ratio = dispersion_ratio,
+          stringsAsFactors = FALSE
+        )
+      })
+    )
+  })
+)
+
+write_output(count_overdispersion, "02_count_overdispersion.csv")
+write_output(count_overdispersion, "assumptions_count_overdispersion.csv")
+count_overdispersion
+```
+
+---
+
+# 02.10 Binary separation audit
+
+The first-choice endpoint is binary only when coding and no-choice handling are valid. This audit checks whether every treatment x exposure cell contains enough binary variation for standard logistic modeling.
+
+```{r binary-separation-audit}
+binary_row <- endpoint_registry_resolved[endpoint_registry_resolved$variable == "first_choice_binary", ]
+
+if (nrow(binary_row) == 0 || is.na(binary_row$resolved_variable_all[1]) || !binary_row$resolved_variable_all[1] %in% names(all_batteries)) {
+  binary_separation_audit <- data.frame(
+    variable = "first_choice_binary",
+    note = "No resolved first-choice binary variable found.",
+    stringsAsFactors = FALSE
+  )
+} else {
+  binary_var <- binary_row$resolved_variable_all[1]
+  valid_binary <- all_batteries[[binary_var]]
+  if ("first_choice_valid_binary" %in% names(all_batteries)) {
+    valid_flag <- as_bool(all_batteries$first_choice_valid_binary)
+  } else {
+    valid_flag <- !is.na(valid_binary) & as.character(valid_binary) != ""
+  }
+
+  tmp <- data.frame(
+    battery = as.character(all_batteries$source_battery_file),
+    treatment = as.character(all_batteries$treatment),
+    exposure = as.character(all_batteries$exposure),
+    variable = "first_choice_binary",
+    value = as.character(valid_binary),
+    valid_binary = valid_flag,
+    stringsAsFactors = FALSE
+  )
+
+  tmp <- tmp[tmp$valid_binary, ]
+  groups <- split(tmp, list(tmp$battery, tmp$treatment, tmp$exposure), drop = TRUE)
+
+  binary_separation_audit <- do.call(
+    rbind,
+    lapply(groups, function(g) {
+      values <- g$value[!is.na(g$value) & g$value != ""]
+      levels_observed <- sort(unique(values))
+      data.frame(
+        battery = unique(g$battery)[1],
+        treatment = unique(g$treatment)[1],
+        exposure = unique(g$exposure)[1],
+        variable = "first_choice_binary",
+        n_valid = length(values),
+        levels_observed = paste(levels_observed, collapse = ";"),
+        n_levels = length(levels_observed),
+        separation_flag = length(levels_observed) < 2,
+        standard_logistic_feasible_cell = length(levels_observed) >= 2,
+        stringsAsFactors = FALSE
+      )
+    })
+  )
+}
+
+write_output(binary_separation_audit, "02_binary_separation_audit.csv")
+write_output(binary_separation_audit, "assumptions_binary_separation_audit.csv")
+binary_separation_audit
+```
+
+---
+
+# 02.11 Modeling decision matrix
+
+The modeling decision matrix combines endpoint role, availability, variable type, and diagnostics. It is a planning output for Notebook 03. Final model details can still be refined when the model is actually fit.
+
+```{r model-decision-matrix}
+make_model_family <- function(data_type, endpoint_model, variable) {
+  if (endpoint_model %in% c("no", "usually_no", "covariate_or_QC")) return("not_endpoint_model")
+  if (data_type == "binary") return("binary_model_if_feasible; otherwise exact/descriptive")
+  if (data_type == "count") return("count_or_rank_based_model_after_overdispersion_check")
+  if (data_type == "ordinal/step") return("ordinal_or_rank_based_model")
+  if (data_type %in% c("bounded/proportion-like", "bounded continuous")) return("bounded_continuous_or_rank_based_factorial_model")
+  if (data_type %in% c("continuous", "continuous derived", "continuous or censored")) return("continuous_factorial_model_with_robust_or_rank_sensitivity_if_flagged")
+  if (data_type == "datetime") return("not_outcome")
+  "review_before_modeling"
+}
+
+model_decision_matrix <- endpoint_registry_resolved
+model_decision_matrix$recommended_model_family <- mapply(
+  make_model_family,
+  model_decision_matrix$data_type,
+  model_decision_matrix$endpoint_model,
+  model_decision_matrix$variable,
+  USE.NAMES = FALSE
+)
+
+normality_flags <- if (nrow(normality_diagnostics) > 0) {
+  aggregate(shapiro_p ~ variable, data = normality_diagnostics[!is.na(normality_diagnostics$shapiro_p), ], FUN = function(x) sum(x < 0.05, na.rm = TRUE))
+} else {
+  data.frame(variable = character(), shapiro_p = numeric())
+}
+if (nrow(normality_flags) > 0) names(normality_flags)[2] <- "n_cells_non_normal_flag"
+
+variance_flags <- if (nrow(variance_diagnostics) > 0) {
+  tmp <- variance_diagnostics
+  tmp$high_variance_ratio_flag <- !is.na(tmp$variance_ratio) & (tmp$variance_ratio > 4 | is.infinite(tmp$variance_ratio))
+  aggregate(high_variance_ratio_flag ~ variable, data = tmp, FUN = sum)
+} else {
+  data.frame(variable = character(), high_variance_ratio_flag = integer())
+}
+if (nrow(variance_flags) > 0) names(variance_flags)[2] <- "n_batteries_high_variance_ratio_flag"
+
+zero_flags <- if (nrow(zero_inflation_audit) > 0) {
+  tmp <- zero_inflation_audit
+  tmp$high_zero_flag <- !is.na(tmp$prop_zero) & tmp$prop_zero >= 0.30
+  aggregate(high_zero_flag ~ variable, data = tmp, FUN = sum)
+} else {
+  data.frame(variable = character(), high_zero_flag = integer())
+}
+if (nrow(zero_flags) > 0) names(zero_flags)[2] <- "n_cells_high_zero_flag"
+
+model_decision_matrix <- merge(model_decision_matrix, normality_flags, by = "variable", all.x = TRUE)
+model_decision_matrix <- merge(model_decision_matrix, variance_flags, by = "variable", all.x = TRUE)
+model_decision_matrix <- merge(model_decision_matrix, zero_flags, by = "variable", all.x = TRUE)
+
+for (col in c("n_cells_non_normal_flag", "n_batteries_high_variance_ratio_flag", "n_cells_high_zero_flag")) {
+  if (!col %in% names(model_decision_matrix)) model_decision_matrix[[col]] <- 0
+  model_decision_matrix[[col]][is.na(model_decision_matrix[[col]])] <- 0
+}
+
+model_decision_matrix$model_readiness <- ifelse(
+  !model_decision_matrix$available_any,
+  "unavailable",
+  ifelse(
+    model_decision_matrix$endpoint_model %in% c("no", "usually_no", "covariate_or_QC"),
+    "not_planned_as_endpoint_model",
+    ifelse(
+      model_decision_matrix$n_cells_high_zero_flag > 0 | model_decision_matrix$n_batteries_high_variance_ratio_flag > 0,
+      "model_with_sensitivity_or_robust_method",
+      "standard_model_candidate"
+    )
+  )
+)
+
+write_output(model_decision_matrix, "02_model_decision_matrix.csv")
+write_output(model_decision_matrix, "assumptions_model_decision_matrix.csv")
+model_decision_matrix
+```
+
+---
+
+# 02.12 PCA readiness
+
+The PCA uses the fixed full-battery endpoint set from BT1. This section checks whether each PCA candidate has a resolved BT1 column and non-missing data.
+
+```{r pca-readiness}
+pca_readiness <- endpoint_registry_resolved[endpoint_registry_resolved$pca_candidate, c(
+  "variable", "domain", "source_test", "data_type", "pca_included", "resolved_variable_BT1", "available_BT1", "n_nonmissing_BT1", "notes"
+)]
+
+pca_readiness$pca_status <- ifelse(
+  !pca_readiness$available_BT1,
+  "not_ready_missing_or_empty_in_BT1",
+  ifelse(
+    pca_readiness$pca_included == "yes_if_valid",
+    "ready_if_condition_factor_formula_range_audit_passes",
+    ifelse(
+      pca_readiness$pca_included == "yes_if_retention_acceptable",
+      "ready_if_complete_case_retention_acceptable",
+      ifelse(
+        pca_readiness$pca_included == "yes_if_coding_valid",
+        "ready_if_binary_coding_and_no_choice_handling_documented",
+        "ready"
+      )
+    )
+  )
+)
+
+write_output(pca_readiness, "02_pca_readiness.csv")
+write_output(pca_readiness, "assumptions_pca_readiness.csv")
+pca_readiness
+```
+
+---
+
+# 02.13 Condition factor readiness
+
+Kc, Kf, and condition-factor aliases are treated as the same operational construct when the formula and range are sound. This notebook does not re-engineer the condition factor; it records whether a condition-factor column is available for downstream audit.
+
+```{r condition-factor-readiness}
+condition_candidates <- c("condition_factor_K", "Kc", "Kf", "kf", "condition_factor", "fulton_k")
+condition_columns <- condition_candidates[condition_candidates %in% names(all_batteries)]
+
+condition_factor_readiness <- if (length(condition_columns) == 0) {
+  data.frame(
+    candidate_columns_found = "none",
+    selected_condition_factor_column = NA_character_,
+    n_nonmissing_all = 0,
+    n_nonmissing_BT1 = 0,
+    readiness = "not_available",
+    note = "No condition factor alias found in audited datasets.",
+    stringsAsFactors = FALSE
+  )
+} else {
+  selected <- condition_columns[1]
+  data.frame(
+    candidate_columns_found = paste(condition_columns, collapse = ";"),
+    selected_condition_factor_column = selected,
+    n_nonmissing_all = sum(!is.na(all_batteries[[selected]])),
+    n_nonmissing_BT1 = ifelse(selected %in% names(bt1), sum(!is.na(bt1[[selected]])), 0),
+    min_all = safe_min(all_batteries[[selected]]),
+    max_all = safe_max(all_batteries[[selected]]),
+    readiness = ifelse(selected %in% names(bt1) && sum(!is.na(bt1[[selected]])) > 0, "available_for_formula_range_audit", "not_available_in_BT1"),
+    note = "Use as condition factor (K) only if Notebook 06 confirms formula and range are sound.",
+    stringsAsFactors = FALSE
+  )
+}
+
+write_output(condition_factor_readiness, "02_condition_factor_readiness.csv")
+condition_factor_readiness
+```
+
+---
+
+# 02.14 Export assumptions summary
+
+```{r assumptions-summary}
+assumptions_summary <- data.frame(
+  item = c(
+    "endpoint_registry_resolved",
+    "descriptive_statistics_created",
+    "normality_diagnostics_created",
+    "variance_diagnostics_created",
+    "zero_inflation_audit_created",
+    "count_overdispersion_audit_created",
+    "binary_separation_audit_created",
+    "model_decision_matrix_created",
+    "pca_readiness_created",
+    "condition_factor_readiness_created",
+    "primary_secondary_hierarchy_used"
+  ),
+  status = c(
+    file.exists(file.path(paths$outputs_logs, "02_endpoint_registry.csv")),
+    file.exists(file.path(paths$outputs_tables, "02_descriptive_statistics_by_cell.csv")),
+    file.exists(file.path(paths$outputs_logs, "02_normality_by_cell.csv")),
+    file.exists(file.path(paths$outputs_logs, "02_variance_diagnostics.csv")),
+    file.exists(file.path(paths$outputs_logs, "02_zero_inflation_by_cell.csv")),
+    file.exists(file.path(paths$outputs_logs, "02_count_overdispersion.csv")),
+    file.exists(file.path(paths$outputs_logs, "02_binary_separation_audit.csv")),
+    file.exists(file.path(paths$outputs_logs, "02_model_decision_matrix.csv")),
+    file.exists(file.path(paths$outputs_logs, "02_pca_readiness.csv")),
+    file.exists(file.path(paths$outputs_logs, "02_condition_factor_readiness.csv")),
+    FALSE
+  ),
+  note = c(
+    "Endpoint roles, availability, and resolved variable names recorded.",
+    "Descriptive statistics exported by battery, treatment, and exposure.",
+    "Normality diagnostics exported where meaningful.",
+    "Variance ratio diagnostics exported.",
+    "Zero inflation screening exported.",
+    "Count-like endpoint screening exported.",
+    "First-choice binary feasibility exported.",
+    "Model-family planning exported.",
+    "Single full-battery PCA readiness exported.",
+    "Condition factor alias availability exported for later formula/range audit.",
+    "This project uses endpoint roles, not primary/secondary hierarchy."
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_output(assumptions_summary, "02_assumptions_summary.csv")
+assumptions_summary
+```
+
+# 02.15 Notebook conclusion
+
+```{r notebook-conclusion}
+notebook_conclusion <- data.frame(
+  conclusion = c(
+    "Audited datasets were loaded and standardized for registry evaluation.",
+    "Endpoint roles were resolved without primary/secondary hierarchy.",
+    "Availability, descriptive statistics, and model-readiness diagnostics were exported.",
+    "The PCA endpoint set was checked against BT1 availability.",
+    "Condition factor aliases were recorded for later formula/range audit.",
+    "No ethanol-effect, battery-effect, PCA, or manuscript-level claims were made in this notebook."
+  ),
+  downstream_use = c(
+    "Notebook 03 model inputs",
+    "Notebook 03, 04, 05 endpoint selection",
+    "Notebook 03 model-family decisions and Notebook 06 robustness checks",
+    "Notebook 05 PCA preparation",
+    "Notebook 06 condition-factor audit and Notebook 05 PCA decision",
+    "Claim discipline for reporting notebooks"
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_output(notebook_conclusion, "02_notebook_conclusion.csv")
+notebook_conclusion
+```
+
+Notebook 03 should now load `02_endpoint_registry.csv` and `02_model_decision_matrix.csv` from `outputs/logs/` and model only endpoints marked as model candidates with available data. Notebook 05 should load `02_pca_readiness.csv` and use the fixed PCA endpoint set with axes interpreted from loadings.

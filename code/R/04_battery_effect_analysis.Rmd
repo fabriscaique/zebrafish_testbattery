@@ -1,0 +1,1269 @@
+---
+title: "04 Battery Effect Analysis"
+subtitle: "Zebrafish Sequential Behavioral Battery — Cell-wise Battery-Context Comparisons"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE
+)
+```
+
+# Question
+
+Do comparable endpoints differ between the full sequential battery and the alternative battery contexts within the same ethanol treatment × exposure cells?
+
+# Why this notebook exists
+
+Notebook 03 tests ethanol effects on endpoint-level outcomes in the BT1 full-battery context. This notebook asks a different methodological question: whether the testing context itself changes measured endpoints.
+
+The analysis is cell-wise. Each comparison is made within the same treatment and exposure combination, so battery-context effects are not estimated by pooling across ethanol concentrations or exposure durations.
+
+This notebook does not run PCA and does not reinterpret endpoint-level ethanol effects. It produces battery-context outputs for Notebook 06, reporting notebooks, and methods text.
+
+# What assumptions matter
+
+This notebook assumes that Notebook 01 produced audited datasets:
+
+- `data_processed/bt1_audited.csv`
+- `data_processed/bt2_audited.csv`
+- `data_processed/bt3_audited.csv`
+
+It also uses the endpoint registry from Notebook 02 when available:
+
+- `outputs/logs/02_endpoint_registry.csv`
+- `outputs/logs/02_model_decision_matrix.csv`
+
+The project does not use a primary/secondary endpoint hierarchy. Endpoints are selected for battery comparison through the registry role `battery_comparison`, plus availability and protocol comparability.
+
+Non-significant difference tests are not interpreted as evidence of sameness. A result is classified as `Inconclusive` unless a difference is detected or equivalence is formally supported by a predefined SESOI.
+
+---
+
+# 04.1 Load audited datasets and registry
+
+```{r project-root}
+find_project_root <- function(start = getwd()) {
+  current <- normalizePath(start, winslash = "/", mustWork = FALSE)
+  candidates <- c(current, dirname(current))
+  previous <- ""
+
+  while (!identical(tail(candidates, 1), previous)) {
+    previous <- tail(candidates, 1)
+    parent <- dirname(previous)
+    if (!identical(parent, previous)) {
+      candidates <- c(candidates, parent)
+    } else {
+      break
+    }
+  }
+
+  for (candidate in unique(candidates)) {
+    has_rproj <- length(list.files(candidate, pattern = "\\.Rproj$", full.names = TRUE)) > 0
+    has_git <- dir.exists(file.path(candidate, ".git"))
+    has_data_dirs <- dir.exists(file.path(candidate, "data_raw")) && dir.exists(file.path(candidate, "data_processed"))
+    if (has_rproj || has_git || has_data_dirs) return(candidate)
+  }
+
+  current
+}
+
+PROJECT_ROOT <- find_project_root()
+
+paths <- list(
+  project_root = PROJECT_ROOT,
+  data_processed = file.path(PROJECT_ROOT, "data_processed"),
+  outputs = file.path(PROJECT_ROOT, "outputs"),
+  outputs_logs = file.path(PROJECT_ROOT, "outputs", "logs"),
+  outputs_tables = file.path(PROJECT_ROOT, "outputs", "tables"),
+  outputs_figures = file.path(PROJECT_ROOT, "outputs", "figures"),
+  outputs_models = file.path(PROJECT_ROOT, "outputs", "models"),
+  docs = file.path(PROJECT_ROOT, "docs")
+)
+
+for (path in paths) {
+  if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+}
+
+paths
+```
+
+```{r packages-and-helpers}
+required_packages <- c("dplyr", "tidyr", "purrr", "knitr")
+
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    stop("Required package is not installed: ", pkg)
+  }
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}
+
+has_ggplot2 <- requireNamespace("ggplot2", quietly = TRUE)
+if (has_ggplot2) suppressPackageStartupMessages(library(ggplot2))
+
+ALPHA <- 0.05
+BOOTSTRAP_R <- 2000
+BOOTSTRAP_SEED <- 20260504
+MIN_CELL_N <- 2
+
+treatment_levels <- c("0", "0.5", "1")
+exposure_levels <- c("1h", "24h", "96h")
+battery_levels <- c("BT1", "BT2", "BT3")
+
+read_required_csv <- function(path) {
+  if (!file.exists(path)) stop("Required file not found: ", path)
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+read_optional_csv <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+read_first_existing_csv <- function(paths) {
+  existing <- paths[file.exists(paths)]
+  if (length(existing) == 0) return(NULL)
+  read.csv(existing[1], stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+write_table <- function(df, filename, folder = paths$outputs_tables) {
+  path <- file.path(folder, filename)
+  write.csv(df, path, row.names = FALSE)
+  path
+}
+
+write_log <- function(df, filename) {
+  path <- file.path(paths$outputs_logs, filename)
+  write.csv(df, path, row.names = FALSE)
+  path
+}
+
+save_object <- function(object, filename) {
+  path <- file.path(paths$outputs_models, filename)
+  saveRDS(object, path)
+  path
+}
+
+first_existing_name <- function(names_vector, candidates) {
+  hit <- candidates[candidates %in% names_vector]
+  if (length(hit) == 0) return(NA_character_)
+  hit[1]
+}
+
+as_bool <- function(x) {
+  if (is.logical(x)) return(x)
+  if (is.numeric(x)) return(!is.na(x) & x != 0)
+  tolower(trimws(as.character(x))) %in% c("true", "t", "1", "yes", "y")
+}
+
+as_numeric_clean <- function(x) {
+  if (is.numeric(x)) return(x)
+  suppressWarnings(as.numeric(as.character(x)))
+}
+
+as_binary_numeric <- function(x) {
+  if (is.numeric(x)) return(ifelse(is.na(x), NA_real_, ifelse(x > 0, 1, 0)))
+  y <- tolower(trimws(as.character(x)))
+  dplyr::case_when(
+    y %in% c("1", "true", "t", "yes", "y", "bright", "claro", "c") ~ 1,
+    y %in% c("0", "false", "f", "no", "n", "dark", "escuro", "e") ~ 0,
+    TRUE ~ NA_real_
+  )
+}
+
+normalise_treatment <- function(x) {
+  y <- trimws(as.character(x))
+  y <- gsub(",", ".", y)
+  y_lower <- tolower(y)
+  y_lower <- gsub("%", "", y_lower)
+  y_lower <- gsub("ethanol|etoh|dose|treatment|mg/l|mm|mol/l|molar| ", "", y_lower)
+  out <- dplyr::case_when(
+    grepl("control|ctrl", y_lower) ~ "0",
+    grepl("^0(\\.0+)?$", y_lower) ~ "0",
+    grepl("^0\\.5", y_lower) ~ "0.5",
+    grepl("^1(\\.0+)?$", y_lower) ~ "1",
+    TRUE ~ y
+  )
+  factor(out, levels = treatment_levels)
+}
+
+normalise_exposure <- function(x) {
+  y <- tolower(trimws(as.character(x)))
+  y <- gsub(" ", "", y)
+  y <- gsub("hours|hour|hrs|hr", "h", y)
+  out <- dplyr::case_when(
+    grepl("96", y) ~ "96h",
+    grepl("24", y) ~ "24h",
+    grepl("^1h$|^1$|^01h$", y) ~ "1h",
+    TRUE ~ y
+  )
+  factor(out, levels = exposure_levels)
+}
+
+standardise_design_columns <- function(df, battery_label) {
+  nms <- names(df)
+  id_col <- first_existing_name(nms, c("fish_id", "fishid", "fish", "animal_id", "specimen_id", "id"))
+  treatment_col <- first_existing_name(nms, c("treatment", "ethanol", "ethanol_treatment", "dose", "concentration", "treat"))
+  exposure_col <- first_existing_name(nms, c("exposure", "exposure_duration", "duration", "timepoint", "time_point"))
+
+  if (is.na(treatment_col)) stop("No treatment column detected in ", battery_label)
+  if (is.na(exposure_col)) stop("No exposure column detected in ", battery_label)
+
+  df$fish_id <- if (!is.na(id_col)) as.character(df[[id_col]]) else paste0(battery_label, "_row_", seq_len(nrow(df)))
+  df$treatment <- normalise_treatment(df[[treatment_col]])
+  df$exposure <- normalise_exposure(df[[exposure_col]])
+  df$battery <- factor(battery_label, levels = battery_levels)
+  df
+}
+
+apply_global_exclusions <- function(df) {
+  if ("global_exclusion_flag" %in% names(df)) {
+    df <- df[!as_bool(df$global_exclusion_flag), , drop = FALSE]
+  }
+  df
+}
+
+clean_nonmissing_count <- function(x) {
+  sum(!is.na(x) & trimws(as.character(x)) != "")
+}
+```
+
+```{r load-data}
+bt1 <- read_required_csv(file.path(paths$data_processed, "bt1_audited.csv"))
+bt2 <- read_required_csv(file.path(paths$data_processed, "bt2_audited.csv"))
+bt3 <- read_required_csv(file.path(paths$data_processed, "bt3_audited.csv"))
+
+bt1 <- standardise_design_columns(bt1, "BT1")
+bt2 <- standardise_design_columns(bt2, "BT2")
+bt3 <- standardise_design_columns(bt3, "BT3")
+
+bt1 <- apply_global_exclusions(bt1)
+bt2 <- apply_global_exclusions(bt2)
+bt3 <- apply_global_exclusions(bt3)
+
+battery_data <- list(BT1 = bt1, BT2 = bt2, BT3 = bt3)
+
+endpoint_registry <- read_first_existing_csv(c(
+  file.path(paths$outputs_logs, "02_endpoint_registry.csv"),
+  file.path(paths$outputs_logs, "assumptions_endpoint_registry.csv"),
+  file.path(paths$outputs_logs, "00_endpoint_registry.csv")
+))
+
+model_decision_matrix <- read_first_existing_csv(c(
+  file.path(paths$outputs_logs, "02_model_decision_matrix.csv"),
+  file.path(paths$outputs_logs, "assumptions_model_decision_matrix.csv")
+))
+
+if (is.null(endpoint_registry)) {
+  stop("Endpoint registry not found. Run 00_project_setup.Rmd and 02_endpoint_hierarchy_and_assumptions.Rmd before Notebook 04.")
+}
+
+if (!"variable" %in% names(endpoint_registry)) {
+  stop("Endpoint registry must contain a 'variable' column.")
+}
+
+battery_structure <- purrr::imap_dfr(
+  battery_data,
+  function(df, battery_label) {
+    data.frame(
+      battery = battery_label,
+      n_rows = nrow(df),
+      n_fish_ids = length(unique(df$fish_id)),
+      n_columns = ncol(df),
+      stringsAsFactors = FALSE
+    )
+  }
+)
+
+write_table(battery_structure, "04_battery_dataset_structure.csv")
+knitr::kable(battery_structure)
+```
+
+---
+
+# 04.2 Confirm independence across battery contexts
+
+Fish IDs are checked before battery-context comparisons. If IDs overlap between batteries, the comparison is no longer a clean independent-sample comparison and must be interpreted differently.
+
+```{r independence-check}
+within_battery_duplicates <- purrr::imap_dfr(
+  battery_data,
+  function(df, battery_label) {
+    df %>%
+      dplyr::count(fish_id, name = "n_records") %>%
+      dplyr::filter(!is.na(fish_id), n_records > 1) %>%
+      dplyr::mutate(battery = battery_label) %>%
+      dplyr::select(battery, fish_id, n_records)
+  }
+)
+
+pairwise_id_overlap <- data.frame(
+  comparison = c("BT1_vs_BT2", "BT1_vs_BT3", "BT2_vs_BT3"),
+  battery_a = c("BT1", "BT1", "BT2"),
+  battery_b = c("BT2", "BT3", "BT3"),
+  stringsAsFactors = FALSE
+) %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+    n_overlap_ids = length(intersect(battery_data[[battery_a]]$fish_id, battery_data[[battery_b]]$fish_id)),
+    independent_sample_assumption = n_overlap_ids == 0
+  ) %>%
+  dplyr::ungroup()
+
+independence_confirmation <- data.frame(
+  check = c(
+    "duplicated IDs within batteries",
+    "BT1-vs-BT2 overlap",
+    "BT1-vs-BT3 overlap",
+    "BT2-vs-BT3 overlap"
+  ),
+  result = c(
+    ifelse(nrow(within_battery_duplicates) == 0, "no duplicated IDs detected", "duplicated IDs detected"),
+    ifelse(pairwise_id_overlap$n_overlap_ids[pairwise_id_overlap$comparison == "BT1_vs_BT2"] == 0, "independent", "overlap detected"),
+    ifelse(pairwise_id_overlap$n_overlap_ids[pairwise_id_overlap$comparison == "BT1_vs_BT3"] == 0, "independent", "overlap detected"),
+    ifelse(pairwise_id_overlap$n_overlap_ids[pairwise_id_overlap$comparison == "BT2_vs_BT3"] == 0, "independent", "overlap detected")
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_log(within_battery_duplicates, "04_within_battery_duplicate_ids.csv")
+write_log(pairwise_id_overlap, "04_pairwise_battery_id_overlap.csv")
+write_log(independence_confirmation, "04_independence_confirmation.csv")
+
+knitr::kable(pairwise_id_overlap)
+knitr::kable(independence_confirmation)
+```
+
+---
+
+# 04.3 Define valid battery pairs
+
+The comparison map is determined by protocol meaning, not by endpoint hierarchy.
+
+- LDT endpoints: BT1 versus BT2.
+- NTT endpoints: BT1 versus BT2.
+- Endurance endpoints: BT1 versus BT3.
+
+```{r valid-battery-pairs}
+valid_battery_pairs <- data.frame(
+  source_test = c("LDT", "NTT", "RN", "endurance", "Endurance"),
+  dataset_a = c("BT1", "BT1", "BT1", "BT1", "BT1"),
+  dataset_b = c("BT2", "BT2", "BT3", "BT3", "BT3"),
+  comparison = c("BT1_vs_BT2", "BT1_vs_BT2", "BT1_vs_BT3", "BT1_vs_BT3", "BT1_vs_BT3"),
+  comparison_rationale = c(
+    "LDT endpoints are available in BT1 and the alternative LDT+NTT context.",
+    "NTT endpoints are available in BT1 and the alternative LDT+NTT context.",
+    "Endurance endpoints are available in BT1 and the isolated endurance context.",
+    "Endurance endpoints are available in BT1 and the isolated endurance context.",
+    "Endurance endpoints are available in BT1 and the isolated endurance context."
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_table(valid_battery_pairs, "04_valid_battery_pairs.csv")
+knitr::kable(valid_battery_pairs)
+```
+
+---
+
+# 04.4 Resolve comparable endpoints
+
+An endpoint is compared only when all of the following are true:
+
+1. The endpoint registry marks it as a battery-comparison candidate.
+2. The source test has a valid battery pair.
+3. A usable column is available in both compared batteries.
+4. Both batteries have non-missing data for the endpoint.
+
+```{r endpoint-comparability}
+normalise_registry <- function(registry) {
+  if (!"source_test" %in% names(registry)) registry$source_test <- NA_character_
+  if (!"domain" %in% names(registry)) registry$domain <- registry$source_test
+  if (!"data_type" %in% names(registry)) registry$data_type <- "review"
+  if (!"battery_comparison" %in% names(registry)) registry$battery_comparison <- "review"
+  if (!"notes" %in% names(registry)) registry$notes <- ""
+  registry
+}
+
+endpoint_registry <- normalise_registry(endpoint_registry)
+
+is_battery_candidate <- function(value) {
+  y <- tolower(trimws(as.character(value)))
+  !(is.na(y) | y %in% c("no", "usually_no", "covariate_or_qc", "design/id variables", "design", "metadata"))
+}
+
+endpoint_type_from_registry <- function(data_type, variable) {
+  dt <- tolower(as.character(data_type))
+  dplyr::case_when(
+    grepl("binary", dt) | variable == "first_choice_binary" ~ "binary",
+    grepl("count|ordinal", dt) | variable %in% c("num_changes", "attempts", "last_flux") ~ "count_or_discrete",
+    grepl("bounded|proportion", dt) | variable %in% c("time_bright_prop", "stratum_pref") ~ "bounded_continuous_or_proportion",
+    TRUE ~ "continuous_or_derived"
+  )
+}
+
+resolve_endpoint_column <- function(df, variable, battery_label = NA_character_) {
+  aliases <- list(
+    resistance_index = c("resistance_index", "irn_computed", "IRN", "irn"),
+    condition_factor_K = c("condition_factor_K", "Kc", "Kf", "kf", "condition_factor", "fulton_k"),
+    time_bright = c("time_bright", "bright_time", "time_light", "ldt_time_bright"),
+    first_choice_binary = c("first_choice_binary", "first_choice_valid_binary", "first_choice"),
+    stratum_pref = c("stratum_pref", "upper_stratum_pref", "top_pref", "time_top_prop"),
+    vel_mean = c("vel_mean", "velocity_mean", "mean_velocity"),
+    mov_total = c("mov_total", "movement_total", "total_movement_time"),
+    dist_total = c("dist_total", "distance_total", "total_distance"),
+    mtpc = c("mtpc", "mean_time_per_choice", "mean_time_per_entry"),
+    blood_sugar = c("blood_sugar", "glycemia", "glucose")
+  )
+
+  candidates <- if (variable %in% names(aliases)) aliases[[variable]] else variable
+  hit <- candidates[candidates %in% names(df)]
+  if (length(hit) == 0) return(NA_character_)
+  hit[1]
+}
+
+endpoint_available_in <- function(variable, battery_label) {
+  df <- battery_data[[battery_label]]
+  if (is.null(df)) return(list(column = NA_character_, available = FALSE, n_nonmissing = 0))
+  column <- resolve_endpoint_column(df, variable, battery_label)
+  if (is.na(column)) return(list(column = NA_character_, available = FALSE, n_nonmissing = 0))
+  n_nonmissing <- clean_nonmissing_count(df[[column]])
+  list(column = column, available = n_nonmissing > 0, n_nonmissing = n_nonmissing)
+}
+
+registry_for_battery <- endpoint_registry %>%
+  dplyr::filter(is_battery_candidate(battery_comparison)) %>%
+  dplyr::mutate(
+    source_test_clean = dplyr::case_when(
+      source_test %in% c("RN", "endurance", "Endurance") ~ source_test,
+      TRUE ~ as.character(source_test)
+    )
+  ) %>%
+  dplyr::left_join(valid_battery_pairs, by = c("source_test_clean" = "source_test"))
+
+comparison_map <- registry_for_battery %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+    endpoint_type = endpoint_type_from_registry(data_type, variable),
+    resolved_column_a = endpoint_available_in(variable, dataset_a)$column,
+    resolved_column_b = endpoint_available_in(variable, dataset_b)$column,
+    n_nonmissing_a = endpoint_available_in(variable, dataset_a)$n_nonmissing,
+    n_nonmissing_b = endpoint_available_in(variable, dataset_b)$n_nonmissing,
+    present_in_dataset_a = endpoint_available_in(variable, dataset_a)$available,
+    present_in_dataset_b = endpoint_available_in(variable, dataset_b)$available,
+    comparable = !is.na(dataset_a) & !is.na(dataset_b) & present_in_dataset_a & present_in_dataset_b,
+    comparability_decision = dplyr::case_when(
+      is.na(dataset_b) ~ "excluded: no valid battery pair for source_test",
+      !present_in_dataset_a ~ paste0("excluded: missing or empty in ", dataset_a),
+      !present_in_dataset_b ~ paste0("excluded: missing or empty in ", dataset_b),
+      TRUE ~ "retained: endpoint present in both compared batteries"
+    )
+  ) %>%
+  dplyr::ungroup()
+
+comparable_endpoints <- comparison_map %>%
+  dplyr::filter(comparable) %>%
+  dplyr::select(
+    variable,
+    domain,
+    source_test,
+    data_type,
+    endpoint_type,
+    comparison,
+    dataset_a,
+    dataset_b,
+    resolved_column_a,
+    resolved_column_b,
+    n_nonmissing_a,
+    n_nonmissing_b,
+    notes
+  )
+
+endpoint_scope_audit <- comparison_map %>%
+  dplyr::count(comparison, source_test, comparability_decision, name = "n_endpoints") %>%
+  dplyr::arrange(comparison, source_test, comparability_decision)
+
+write_table(comparison_map, "04_comparable_endpoint_map.csv")
+write_table(comparable_endpoints, "04_comparable_endpoints_retained.csv")
+write_log(endpoint_scope_audit, "04_endpoint_scope_audit.csv")
+
+knitr::kable(comparison_map)
+knitr::kable(comparable_endpoints)
+```
+
+---
+
+# 04.5 Run cell-wise difference tests
+
+Non-binary endpoints are compared with independent-sample Mann–Whitney rank-sum tests. Binary endpoints are compared with Fisher exact tests.
+
+```{r effect-size-and-test-functions}
+hedges_g <- function(x, y) {
+  x <- x[is.finite(x)]
+  y <- y[is.finite(y)]
+  nx <- length(x)
+  ny <- length(y)
+  if (nx < 2 || ny < 2) return(NA_real_)
+  sx <- stats::sd(x)
+  sy <- stats::sd(y)
+  if (!is.finite(sx) || !is.finite(sy)) return(NA_real_)
+  sp2 <- ((nx - 1) * sx^2 + (ny - 1) * sy^2) / (nx + ny - 2)
+  if (!is.finite(sp2) || sp2 <= 0) return(NA_real_)
+  d <- (mean(y) - mean(x)) / sqrt(sp2)
+  correction <- 1 - (3 / (4 * (nx + ny) - 9))
+  d * correction
+}
+
+cliffs_delta <- function(x, y) {
+  x <- x[is.finite(x)]
+  y <- y[is.finite(y)]
+  nx <- length(x)
+  ny <- length(y)
+  if (nx == 0 || ny == 0) return(NA_real_)
+  comparisons <- outer(y, x, "-")
+  (sum(comparisons > 0) - sum(comparisons < 0)) / (nx * ny)
+}
+
+safe_wilcox_p <- function(x, y) {
+  x <- x[is.finite(x)]
+  y <- y[is.finite(y)]
+  if (length(x) < 1 || length(y) < 1) return(NA_real_)
+  if (length(unique(c(x, y))) < 2) return(NA_real_)
+  result <- tryCatch(
+    stats::wilcox.test(x, y, exact = FALSE, correct = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(result)) return(NA_real_)
+  result$p.value
+}
+
+safe_fisher_binary <- function(x, y) {
+  x <- as_binary_numeric(x)
+  y <- as_binary_numeric(y)
+  x <- x[is.finite(x)]
+  y <- y[is.finite(y)]
+
+  if (length(x) == 0 || length(y) == 0) {
+    return(list(p_value = NA_real_, risk_difference = NA_real_, odds_ratio_b_vs_a = NA_real_))
+  }
+
+  tab <- matrix(
+    c(sum(x == 1), sum(x == 0), sum(y == 1), sum(y == 0)),
+    nrow = 2,
+    byrow = TRUE
+  )
+
+  fisher_p <- tryCatch(
+    stats::fisher.test(tab)$p.value,
+    error = function(e) NA_real_
+  )
+
+  risk_difference <- mean(y == 1) - mean(x == 1)
+  odds_a <- (sum(x == 1) + 0.5) / (sum(x == 0) + 0.5)
+  odds_b <- (sum(y == 1) + 0.5) / (sum(y == 0) + 0.5)
+
+  list(
+    p_value = fisher_p,
+    risk_difference = risk_difference,
+    odds_ratio_b_vs_a = odds_b / odds_a
+  )
+}
+
+get_cell_values <- function(variable, endpoint_type, dataset_a, dataset_b, column_a, column_b, treatment_i, exposure_i) {
+  df_a <- battery_data[[dataset_a]]
+  df_b <- battery_data[[dataset_b]]
+
+  idx_a <- df_a$treatment == treatment_i & df_a$exposure == exposure_i
+  idx_b <- df_b$treatment == treatment_i & df_b$exposure == exposure_i
+
+  raw_x <- df_a[[column_a]][idx_a]
+  raw_y <- df_b[[column_b]][idx_b]
+
+  if (endpoint_type == "binary") {
+    x <- as_binary_numeric(raw_x)
+    y <- as_binary_numeric(raw_y)
+  } else {
+    x <- as_numeric_clean(raw_x)
+    y <- as_numeric_clean(raw_y)
+  }
+
+  list(
+    x = x[is.finite(x)],
+    y = y[is.finite(y)]
+  )
+}
+
+summarise_cell <- function(variable, domain, source_test, data_type, endpoint_type, comparison, dataset_a, dataset_b, resolved_column_a, resolved_column_b, treatment_i, exposure_i) {
+  values <- get_cell_values(variable, endpoint_type, dataset_a, dataset_b, resolved_column_a, resolved_column_b, treatment_i, exposure_i)
+  x <- values$x
+  y <- values$y
+
+  n_a <- length(x)
+  n_b <- length(y)
+
+  base <- data.frame(
+    endpoint = variable,
+    domain = domain,
+    source_test = source_test,
+    data_type = data_type,
+    endpoint_type = endpoint_type,
+    comparison = comparison,
+    dataset_a = dataset_a,
+    dataset_b = dataset_b,
+    resolved_column_a = resolved_column_a,
+    resolved_column_b = resolved_column_b,
+    treatment = as.character(treatment_i),
+    exposure = as.character(exposure_i),
+    n_a = n_a,
+    n_b = n_b,
+    mean_a = ifelse(n_a > 0, mean(x), NA_real_),
+    mean_b = ifelse(n_b > 0, mean(y), NA_real_),
+    sd_a = ifelse(n_a > 1, stats::sd(x), NA_real_),
+    sd_b = ifelse(n_b > 1, stats::sd(y), NA_real_),
+    median_a = ifelse(n_a > 0, stats::median(x), NA_real_),
+    median_b = ifelse(n_b > 0, stats::median(y), NA_real_),
+    mean_difference_b_minus_a = ifelse(n_a > 0 & n_b > 0, mean(y) - mean(x), NA_real_),
+    median_difference_b_minus_a = ifelse(n_a > 0 & n_b > 0, stats::median(y) - stats::median(x), NA_real_),
+    stringsAsFactors = FALSE
+  )
+
+  if (endpoint_type == "binary") {
+    binary_result <- safe_fisher_binary(x, y)
+    base$test_method <- "Fisher exact test"
+    base$p_value_raw <- binary_result$p_value
+    base$hedges_g <- NA_real_
+    base$rank_biserial <- NA_real_
+    base$cliffs_delta <- NA_real_
+    base$risk_difference_b_minus_a <- binary_result$risk_difference
+    base$odds_ratio_b_vs_a <- binary_result$odds_ratio_b_vs_a
+    base$feasibility_note <- ifelse(n_a == 0 | n_b == 0, "not tested: empty cell in at least one battery", "tested")
+  } else {
+    base$test_method <- "Mann-Whitney rank-sum"
+    base$p_value_raw <- safe_wilcox_p(x, y)
+    base$hedges_g <- hedges_g(x, y)
+    base$rank_biserial <- cliffs_delta(x, y)
+    base$cliffs_delta <- cliffs_delta(x, y)
+    base$risk_difference_b_minus_a <- NA_real_
+    base$odds_ratio_b_vs_a <- NA_real_
+    base$feasibility_note <- dplyr::case_when(
+      n_a == 0 | n_b == 0 ~ "not tested: empty cell in at least one battery",
+      length(unique(c(x, y))) < 2 ~ "not tested: no variation across compared values",
+      TRUE ~ "tested"
+    )
+  }
+
+  base
+}
+```
+
+```{r run-cellwise-comparisons}
+cell_grid <- tidyr::expand_grid(
+  treatment = treatment_levels,
+  exposure = exposure_levels
+)
+
+if (nrow(comparable_endpoints) == 0) {
+  cellwise_tests <- data.frame()
+} else {
+  cellwise_tests <- purrr::pmap_dfr(
+    comparable_endpoints,
+    function(variable, domain, source_test, data_type, endpoint_type, comparison, dataset_a, dataset_b, resolved_column_a, resolved_column_b, n_nonmissing_a, n_nonmissing_b, notes) {
+      purrr::pmap_dfr(
+        cell_grid,
+        function(treatment, exposure) {
+          summarise_cell(
+            variable = variable,
+            domain = domain,
+            source_test = source_test,
+            data_type = data_type,
+            endpoint_type = endpoint_type,
+            comparison = comparison,
+            dataset_a = dataset_a,
+            dataset_b = dataset_b,
+            resolved_column_a = resolved_column_a,
+            resolved_column_b = resolved_column_b,
+            treatment_i = treatment,
+            exposure_i = exposure
+          )
+        }
+      )
+    }
+  )
+}
+
+rank_test_table <- if (nrow(cellwise_tests) > 0) cellwise_tests[cellwise_tests$test_method == "Mann-Whitney rank-sum", ] else data.frame()
+binary_test_table <- if (nrow(cellwise_tests) > 0) cellwise_tests[cellwise_tests$test_method == "Fisher exact test", ] else data.frame()
+
+write_table(cellwise_tests, "04_battery_cellwise_difference_tests_raw.csv")
+write_table(rank_test_table, "04_battery_mann_whitney_tests_raw.csv")
+write_table(binary_test_table, "04_battery_binary_fisher_tests_raw.csv")
+
+knitr::kable(cellwise_tests)
+```
+
+---
+
+# 04.6 Effect-size table
+
+Effect sizes use `dataset_b - BT1` direction. Positive values indicate larger values in the alternative battery context than in BT1 within the same treatment × exposure cell.
+
+```{r effect-size-table}
+effect_size_table <- if (nrow(cellwise_tests) > 0) {
+  cellwise_tests %>%
+    dplyr::select(
+      endpoint,
+      domain,
+      source_test,
+      data_type,
+      endpoint_type,
+      comparison,
+      dataset_a,
+      dataset_b,
+      treatment,
+      exposure,
+      n_a,
+      n_b,
+      mean_difference_b_minus_a,
+      median_difference_b_minus_a,
+      hedges_g,
+      rank_biserial,
+      cliffs_delta,
+      risk_difference_b_minus_a,
+      odds_ratio_b_vs_a,
+      feasibility_note
+    )
+} else {
+  data.frame()
+}
+
+write_table(effect_size_table, "04_battery_effect_sizes.csv")
+knitr::kable(effect_size_table)
+```
+
+---
+
+# 04.7 Bootstrap uncertainty
+
+Bootstrap confidence intervals are generated within each treatment × exposure × battery-context cell.
+
+```{r bootstrap-functions}
+bootstrap_ci <- function(x, y, statistic_function, R = BOOTSTRAP_R) {
+  x <- x[is.finite(x)]
+  y <- y[is.finite(y)]
+
+  if (length(x) == 0 || length(y) == 0) {
+    return(c(estimate = NA_real_, ci_low = NA_real_, ci_high = NA_real_, n_boot_valid = 0))
+  }
+
+  estimate <- statistic_function(x, y)
+
+  values <- replicate(
+    R,
+    {
+      xb <- sample(x, size = length(x), replace = TRUE)
+      yb <- sample(y, size = length(y), replace = TRUE)
+      statistic_function(xb, yb)
+    }
+  )
+
+  values <- values[is.finite(values)]
+  if (length(values) < 20) {
+    return(c(estimate = estimate, ci_low = NA_real_, ci_high = NA_real_, n_boot_valid = length(values)))
+  }
+
+  qs <- stats::quantile(values, probs = c(0.025, 0.975), na.rm = TRUE, names = FALSE)
+  c(estimate = estimate, ci_low = qs[1], ci_high = qs[2], n_boot_valid = length(values))
+}
+
+bootstrap_for_cell <- function(variable, domain, source_test, data_type, endpoint_type, comparison, dataset_a, dataset_b, resolved_column_a, resolved_column_b, treatment_i, exposure_i) {
+  values <- get_cell_values(variable, endpoint_type, dataset_a, dataset_b, resolved_column_a, resolved_column_b, treatment_i, exposure_i)
+  x <- values$x
+  y <- values$y
+
+  if (endpoint_type == "binary") {
+    statistics <- list(
+      risk_difference_b_minus_a = function(a, b) mean(b > 0) - mean(a > 0)
+    )
+  } else {
+    statistics <- list(
+      mean_difference_b_minus_a = function(a, b) mean(b) - mean(a),
+      median_difference_b_minus_a = function(a, b) stats::median(b) - stats::median(a),
+      hedges_g = hedges_g,
+      cliffs_delta = cliffs_delta
+    )
+  }
+
+  purrr::imap_dfr(
+    statistics,
+    function(statistic_function, statistic_name) {
+      ci <- bootstrap_ci(x, y, statistic_function, R = BOOTSTRAP_R)
+      data.frame(
+        endpoint = variable,
+        domain = domain,
+        source_test = source_test,
+        data_type = data_type,
+        endpoint_type = endpoint_type,
+        comparison = comparison,
+        dataset_a = dataset_a,
+        dataset_b = dataset_b,
+        treatment = as.character(treatment_i),
+        exposure = as.character(exposure_i),
+        statistic = statistic_name,
+        estimate = ci["estimate"],
+        ci_low = ci["ci_low"],
+        ci_high = ci["ci_high"],
+        bootstrap_R_requested = BOOTSTRAP_R,
+        bootstrap_R_valid = ci["n_boot_valid"],
+        stringsAsFactors = FALSE
+      )
+    }
+  )
+}
+```
+
+```{r run-bootstrap-cis}
+set.seed(BOOTSTRAP_SEED)
+
+if (nrow(comparable_endpoints) == 0) {
+  bootstrap_ci_table <- data.frame()
+} else {
+  bootstrap_ci_table <- purrr::pmap_dfr(
+    comparable_endpoints,
+    function(variable, domain, source_test, data_type, endpoint_type, comparison, dataset_a, dataset_b, resolved_column_a, resolved_column_b, n_nonmissing_a, n_nonmissing_b, notes) {
+      purrr::pmap_dfr(
+        cell_grid,
+        function(treatment, exposure) {
+          bootstrap_for_cell(
+            variable = variable,
+            domain = domain,
+            source_test = source_test,
+            data_type = data_type,
+            endpoint_type = endpoint_type,
+            comparison = comparison,
+            dataset_a = dataset_a,
+            dataset_b = dataset_b,
+            resolved_column_a = resolved_column_a,
+            resolved_column_b = resolved_column_b,
+            treatment_i = treatment,
+            exposure_i = exposure
+          )
+        }
+      )
+    }
+  )
+}
+
+write_table(bootstrap_ci_table, "04_battery_bootstrap_confidence_intervals.csv")
+knitr::kable(bootstrap_ci_table)
+```
+
+---
+
+# 04.8 Equivalence setup
+
+Equivalence testing is run only if a predefined SESOI file is supplied. Without SESOI bounds, non-significant difference tests remain inconclusive.
+
+Expected optional SESOI file columns:
+
+- `endpoint`
+- `sesoi_raw`
+- `sesoi_unit`
+- `sesoi_source`
+- `equivalence_test_allowed`
+
+```{r sesoi-setup}
+sesoi_input <- read_first_existing_csv(c(
+  file.path(paths$outputs_logs, "battery_effect_sesoi.csv"),
+  file.path(paths$outputs_tables, "battery_effect_sesoi.csv"),
+  file.path(paths$docs, "battery_effect_sesoi.csv")
+))
+
+if (nrow(comparable_endpoints) == 0) {
+  sesoi_table <- data.frame()
+} else if (is.null(sesoi_input)) {
+  sesoi_table <- comparable_endpoints %>%
+    dplyr::distinct(endpoint = variable, domain, source_test, endpoint_type) %>%
+    dplyr::mutate(
+      sesoi_raw = NA_real_,
+      sesoi_unit = "raw endpoint units",
+      sesoi_source = "not defined; confirmatory TOST not run",
+      equivalence_test_allowed = FALSE
+    )
+
+  write_log(sesoi_table, "04_battery_effect_sesoi_template.csv")
+} else {
+  if (!all(c("endpoint", "sesoi_raw") %in% names(sesoi_input))) {
+    stop("SESOI file exists but lacks required columns: endpoint, sesoi_raw")
+  }
+
+  if (!"sesoi_unit" %in% names(sesoi_input)) sesoi_input$sesoi_unit <- "raw endpoint units"
+  if (!"sesoi_source" %in% names(sesoi_input)) sesoi_input$sesoi_source <- "source not specified"
+  if (!"equivalence_test_allowed" %in% names(sesoi_input)) {
+    sesoi_input$equivalence_test_allowed <- is.finite(sesoi_input$sesoi_raw)
+  } else {
+    sesoi_input$equivalence_test_allowed <- as_bool(sesoi_input$equivalence_test_allowed)
+  }
+
+  sesoi_table <- comparable_endpoints %>%
+    dplyr::distinct(endpoint = variable, domain, source_test, endpoint_type) %>%
+    dplyr::left_join(sesoi_input, by = "endpoint") %>%
+    dplyr::mutate(
+      sesoi_unit = ifelse(is.na(sesoi_unit), "raw endpoint units", sesoi_unit),
+      sesoi_source = ifelse(is.na(sesoi_source), "source not specified", sesoi_source),
+      equivalence_test_allowed = ifelse(is.na(equivalence_test_allowed), FALSE, equivalence_test_allowed),
+      equivalence_test_allowed = equivalence_test_allowed & is.finite(sesoi_raw) & sesoi_raw > 0
+    )
+}
+
+sesoi_log <- if (nrow(sesoi_table) > 0) {
+  sesoi_table %>%
+    dplyr::mutate(
+      equivalence_decision = dplyr::case_when(
+        endpoint_type == "binary" ~ "not run here: binary endpoint requires endpoint-specific equivalence definition",
+        equivalence_test_allowed ~ "TOST allowed",
+        TRUE ~ "TOST not run: SESOI absent or not allowed"
+      )
+    )
+} else {
+  data.frame()
+}
+
+write_log(sesoi_log, "04_equivalence_bound_log.csv")
+knitr::kable(sesoi_log)
+```
+
+---
+
+# 04.9 TOST equivalence, when allowed
+
+```{r tost-functions}
+welch_tost <- function(x, y, sesoi_raw, alpha = ALPHA) {
+  x <- x[is.finite(x)]
+  y <- y[is.finite(y)]
+  nx <- length(x)
+  ny <- length(y)
+
+  if (nx < 2 || ny < 2 || !is.finite(sesoi_raw) || sesoi_raw <= 0) {
+    return(data.frame(
+      tost_p_lower = NA_real_,
+      tost_p_upper = NA_real_,
+      tost_p_max = NA_real_,
+      tost_equivalent = FALSE,
+      tost_note = "not tested: insufficient data or invalid SESOI",
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  mean_diff <- mean(y) - mean(x)
+  vx <- stats::var(x)
+  vy <- stats::var(y)
+  se <- sqrt(vx / nx + vy / ny)
+
+  if (!is.finite(se) || se == 0) {
+    return(data.frame(
+      tost_p_lower = NA_real_,
+      tost_p_upper = NA_real_,
+      tost_p_max = NA_real_,
+      tost_equivalent = FALSE,
+      tost_note = "not tested: zero or undefined standard error",
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  df_num <- (vx / nx + vy / ny)^2
+  df_den <- ((vx / nx)^2 / (nx - 1)) + ((vy / ny)^2 / (ny - 1))
+  df <- df_num / df_den
+
+  t_lower <- (mean_diff + sesoi_raw) / se
+  t_upper <- (mean_diff - sesoi_raw) / se
+
+  p_lower <- 1 - stats::pt(t_lower, df = df)
+  p_upper <- stats::pt(t_upper, df = df)
+  p_max <- max(p_lower, p_upper)
+
+  data.frame(
+    tost_p_lower = p_lower,
+    tost_p_upper = p_upper,
+    tost_p_max = p_max,
+    tost_equivalent = p_lower < alpha & p_upper < alpha,
+    tost_note = "tested",
+    stringsAsFactors = FALSE
+  )
+}
+
+run_tost_for_cell <- function(variable, domain, source_test, data_type, endpoint_type, comparison, dataset_a, dataset_b, resolved_column_a, resolved_column_b, treatment_i, exposure_i, sesoi_raw, equivalence_test_allowed) {
+  if (endpoint_type == "binary") {
+    return(data.frame(
+      endpoint = variable,
+      domain = domain,
+      source_test = source_test,
+      data_type = data_type,
+      endpoint_type = endpoint_type,
+      comparison = comparison,
+      dataset_a = dataset_a,
+      dataset_b = dataset_b,
+      treatment = as.character(treatment_i),
+      exposure = as.character(exposure_i),
+      sesoi_raw = sesoi_raw,
+      tost_p_lower = NA_real_,
+      tost_p_upper = NA_real_,
+      tost_p_max = NA_real_,
+      tost_equivalent = FALSE,
+      tost_note = "not tested: binary endpoint requires endpoint-specific equivalence definition",
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  if (!equivalence_test_allowed) {
+    return(data.frame(
+      endpoint = variable,
+      domain = domain,
+      source_test = source_test,
+      data_type = data_type,
+      endpoint_type = endpoint_type,
+      comparison = comparison,
+      dataset_a = dataset_a,
+      dataset_b = dataset_b,
+      treatment = as.character(treatment_i),
+      exposure = as.character(exposure_i),
+      sesoi_raw = sesoi_raw,
+      tost_p_lower = NA_real_,
+      tost_p_upper = NA_real_,
+      tost_p_max = NA_real_,
+      tost_equivalent = FALSE,
+      tost_note = "not tested: SESOI absent or equivalence testing not allowed",
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  values <- get_cell_values(variable, endpoint_type, dataset_a, dataset_b, resolved_column_a, resolved_column_b, treatment_i, exposure_i)
+  tost <- welch_tost(values$x, values$y, sesoi_raw = sesoi_raw, alpha = ALPHA)
+
+  cbind(
+    data.frame(
+      endpoint = variable,
+      domain = domain,
+      source_test = source_test,
+      data_type = data_type,
+      endpoint_type = endpoint_type,
+      comparison = comparison,
+      dataset_a = dataset_a,
+      dataset_b = dataset_b,
+      treatment = as.character(treatment_i),
+      exposure = as.character(exposure_i),
+      sesoi_raw = sesoi_raw,
+      stringsAsFactors = FALSE
+    ),
+    tost
+  )
+}
+```
+
+```{r run-tost}
+if (nrow(comparable_endpoints) == 0) {
+  equivalence_tests <- data.frame()
+} else {
+  tost_input <- comparable_endpoints %>%
+    dplyr::rename(endpoint = variable) %>%
+    dplyr::left_join(
+      sesoi_table %>% dplyr::select(endpoint, sesoi_raw, equivalence_test_allowed),
+      by = "endpoint"
+    ) %>%
+    dplyr::mutate(
+      sesoi_raw = ifelse(is.na(sesoi_raw), NA_real_, sesoi_raw),
+      equivalence_test_allowed = ifelse(is.na(equivalence_test_allowed), FALSE, equivalence_test_allowed)
+    )
+
+  equivalence_tests <- purrr::pmap_dfr(
+    tost_input,
+    function(endpoint, domain, source_test, data_type, endpoint_type, comparison, dataset_a, dataset_b, resolved_column_a, resolved_column_b, n_nonmissing_a, n_nonmissing_b, notes, sesoi_raw, equivalence_test_allowed) {
+      purrr::pmap_dfr(
+        cell_grid,
+        function(treatment, exposure) {
+          run_tost_for_cell(
+            variable = endpoint,
+            domain = domain,
+            source_test = source_test,
+            data_type = data_type,
+            endpoint_type = endpoint_type,
+            comparison = comparison,
+            dataset_a = dataset_a,
+            dataset_b = dataset_b,
+            resolved_column_a = resolved_column_a,
+            resolved_column_b = resolved_column_b,
+            treatment_i = treatment,
+            exposure_i = exposure,
+            sesoi_raw = sesoi_raw,
+            equivalence_test_allowed = equivalence_test_allowed
+          )
+        }
+      )
+    }
+  )
+}
+
+write_table(equivalence_tests, "04_battery_tost_equivalence_tests.csv")
+knitr::kable(equivalence_tests)
+```
+
+---
+
+# 04.10 BH-FDR correction and classification
+
+Difference-test p-values are corrected across the battery-comparison testing family. Classification is rule-based:
+
+- `Difference detected`: BH-FDR adjusted difference test is below alpha.
+- `Equivalence supported`: no detected difference, but TOST supports practical equivalence using predefined SESOI.
+- `Inconclusive`: neither difference nor equivalence is established.
+
+```{r fdr-and-classification}
+adjusted_difference_tests <- cellwise_tests
+
+if (nrow(adjusted_difference_tests) > 0) {
+  adjusted_difference_tests$p_value_bh <- NA_real_
+  valid_p <- is.finite(adjusted_difference_tests$p_value_raw)
+  adjusted_difference_tests$p_value_bh[valid_p] <- stats::p.adjust(adjusted_difference_tests$p_value_raw[valid_p], method = "BH")
+  adjusted_difference_tests$difference_detected <- is.finite(adjusted_difference_tests$p_value_bh) & adjusted_difference_tests$p_value_bh < ALPHA
+} else {
+  adjusted_difference_tests <- data.frame()
+}
+
+if (nrow(adjusted_difference_tests) > 0) {
+  battery_method_summary <- adjusted_difference_tests %>%
+    dplyr::left_join(
+      equivalence_tests %>%
+        dplyr::select(endpoint, comparison, treatment, exposure, sesoi_raw, tost_p_max, tost_equivalent, tost_note),
+      by = c("endpoint", "comparison", "treatment", "exposure")
+    ) %>%
+    dplyr::mutate(
+      tost_equivalent = ifelse(is.na(tost_equivalent), FALSE, tost_equivalent),
+      battery_method_conclusion = dplyr::case_when(
+        difference_detected ~ "Difference detected",
+        !difference_detected & tost_equivalent ~ "Equivalence supported",
+        TRUE ~ "Inconclusive"
+      ),
+      interpretation_rule = dplyr::case_when(
+        battery_method_conclusion == "Difference detected" ~ "Adjusted difference test supports a battery-context difference in this endpoint/cell.",
+        battery_method_conclusion == "Equivalence supported" ~ "TOST supports practical similarity within predefined SESOI bounds.",
+        TRUE ~ "No adjusted difference detected, but equivalence is not established. Do not write 'no difference'."
+      )
+    )
+} else {
+  battery_method_summary <- data.frame()
+}
+
+summary_counts <- if (nrow(battery_method_summary) > 0) {
+  battery_method_summary %>%
+    dplyr::count(comparison, source_test, domain, battery_method_conclusion, name = "n_endpoint_cells") %>%
+    dplyr::arrange(comparison, source_test, domain, battery_method_conclusion)
+} else {
+  data.frame()
+}
+
+write_table(adjusted_difference_tests, "04_battery_adjusted_difference_tests.csv")
+write_table(battery_method_summary, "04_battery_method_summary.csv")
+write_table(summary_counts, "04_battery_method_summary_counts.csv")
+
+knitr::kable(adjusted_difference_tests)
+knitr::kable(battery_method_summary)
+knitr::kable(summary_counts)
+```
+
+---
+
+# 04.11 Diagnostic figure
+
+```{r optional-effect-size-plot, fig.width=10, fig.height=7}
+if (has_ggplot2 && nrow(effect_size_table) > 0 && "hedges_g" %in% names(effect_size_table)) {
+  plot_data <- effect_size_table %>%
+    dplyr::filter(is.finite(hedges_g)) %>%
+    dplyr::mutate(
+      cell = paste(treatment, exposure, sep = " / "),
+      endpoint_cell = paste(endpoint, cell, sep = " | ")
+    )
+
+  if (nrow(plot_data) > 0) {
+    p <- ggplot2::ggplot(plot_data, ggplot2::aes(x = hedges_g, y = endpoint_cell)) +
+      ggplot2::geom_vline(xintercept = 0, linetype = "dashed") +
+      ggplot2::geom_point() +
+      ggplot2::facet_wrap(~ comparison, scales = "free_y") +
+      ggplot2::labs(
+        title = "Battery-context effect sizes by endpoint and treatment × exposure cell",
+        x = "Hedges' g; positive = alternative battery context greater than BT1",
+        y = NULL
+      ) +
+      ggplot2::theme_bw()
+
+    print(p)
+
+    ggplot2::ggsave(
+      filename = file.path(paths$outputs_figures, "04_battery_hedges_g_forest_plot.png"),
+      plot = p,
+      width = 10,
+      height = 7,
+      dpi = 300
+    )
+  }
+}
+```
+
+---
+
+# 04.12 Notebook conclusion
+
+```{r notebook-conclusion}
+conclusion_text <- data.frame(
+  conclusion_item = c(
+    "Battery comparison structure",
+    "Endpoint selection",
+    "Difference testing",
+    "Effect-size reporting",
+    "Bootstrap uncertainty",
+    "Equivalence rule",
+    "Downstream use"
+  ),
+  conclusion = c(
+    "BT1-vs-BT2 is used for LDT/NTT endpoints; BT1-vs-BT3 is used for endurance endpoints.",
+    "Comparable endpoints are selected from the endpoint registry and availability checks; no primary/secondary hierarchy is used.",
+    "Battery-context differences are tested cell-wise within treatment × exposure combinations.",
+    "Non-binary endpoints report Hedges' g and Cliff's delta/rank-biserial; binary endpoints report risk difference and odds ratio.",
+    "Bootstrap confidence intervals are generated for endpoint-appropriate statistics.",
+    "Equivalence is not claimed unless predefined SESOI bounds permit confirmatory TOST.",
+    "Saved outputs feed Notebook 06 concordance/robustness checks, Notebook 07 reporting, and Notebook 08 methods text."
+  ),
+  stringsAsFactors = FALSE
+)
+
+write_log(conclusion_text, "04_battery_effect_analysis_conclusion.csv")
+knitr::kable(conclusion_text)
+
+save_object(
+  list(
+    battery_structure = battery_structure,
+    independence_confirmation = independence_confirmation,
+    valid_battery_pairs = valid_battery_pairs,
+    comparison_map = comparison_map,
+    comparable_endpoints = comparable_endpoints,
+    cellwise_tests = cellwise_tests,
+    effect_size_table = effect_size_table,
+    bootstrap_ci_table = bootstrap_ci_table,
+    sesoi_log = sesoi_log,
+    equivalence_tests = equivalence_tests,
+    adjusted_difference_tests = adjusted_difference_tests,
+    battery_method_summary = battery_method_summary,
+    summary_counts = summary_counts
+  ),
+  "04_battery_effect_analysis_results.rds"
+)
+```

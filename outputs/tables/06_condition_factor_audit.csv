@@ -1,0 +1,2 @@
+condition_col,weight_col,length_col,n_checked,formula_checked,selected_formula,correlation_with_formula,median_abs_difference,observed_min,observed_max,audit_status,details
+Kc,wt,ls,136,TRUE,weight / length^3 * 100,1,2.220446049250313e-15,0.816326530612245,2.34970293041523,pass,Condition factor compared against available weight-length formula.

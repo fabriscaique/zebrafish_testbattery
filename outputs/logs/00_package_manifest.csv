@@ -1,0 +1,26 @@
+"package","role","required_now","installed"
+"readr","data handling",TRUE,TRUE
+"dplyr","data handling",TRUE,TRUE
+"tidyr","data handling",TRUE,TRUE
+"stringr","data handling",TRUE,TRUE
+"purrr","data handling",TRUE,TRUE
+"tibble","data handling",TRUE,TRUE
+"ggplot2","figures",TRUE,TRUE
+"patchwork","figures",FALSE,FALSE
+"ggrepel","figures",FALSE,TRUE
+"broom","models and diagnostics",TRUE,TRUE
+"car","models and diagnostics",FALSE,TRUE
+"ARTool","models and diagnostics",FALSE,TRUE
+"rstatix","models and diagnostics",FALSE,TRUE
+"emmeans","models and diagnostics",FALSE,TRUE
+"effectsize","models and diagnostics",FALSE,TRUE
+"boot","models and diagnostics",FALSE,TRUE
+"logistf","binary/count/nonparametric support",FALSE,TRUE
+"MASS","binary/count/nonparametric support",FALSE,TRUE
+"coin","binary/count/nonparametric support",FALSE,FALSE
+"FactoMineR","PCA",FALSE,TRUE
+"factoextra","PCA",FALSE,TRUE
+"psych","PCA",FALSE,FALSE
+"knitr","reporting",TRUE,TRUE
+"kableExtra","reporting",FALSE,FALSE
+"rmarkdown","reporting",TRUE,TRUE

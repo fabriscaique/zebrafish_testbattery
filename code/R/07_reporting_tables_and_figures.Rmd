@@ -1,0 +1,1262 @@
+---
+title: "07 Reporting Tables and Figures"
+author: "Caique Ortiz Colombo Arnoldi Fabris"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: readable
+---
+
+# Purpose
+
+This notebook converts completed outputs from notebooks 00W-06 into manuscript-oriented tables and figures.
+
+It does not introduce new statistical decisions. It does not change endpoint roles, model families, battery-comparison rules, PCA variables, PCA interpretation, exclusions, or robustness classifications.
+
+The reporting logic is:
+
+- Data preparation and QC come from notebooks 00W-01.
+- Endpoint registry and model readiness come from Notebook 02.
+- Endpoint-level ethanol effects come from Notebook 03.
+- Battery-context comparisons come from Notebook 04.
+- PCA structure comes from Notebook 05.
+- Concordance and robustness come from Notebook 06.
+
+Notebook 07 only formats, combines, and visualizes saved outputs.
+
+# Notebook contract
+
+Notebook 07 is complete when it creates a reporting bundle in `outputs/reporting/`.
+
+Expected outputs:
+
+- `outputs/reporting/tables/Table_01_dataset_qc_summary.csv`
+- `outputs/reporting/tables/Table_02_endpoint_registry.csv`
+- `outputs/reporting/tables/Table_03_descriptive_statistics.csv`
+- `outputs/reporting/tables/Table_04_ethanol_endpoint_models.csv`
+- `outputs/reporting/tables/Table_05_battery_context_summary.csv`
+- `outputs/reporting/tables/Table_06_pca_summary.csv`
+- `outputs/reporting/tables/Table_07_robustness_summary.csv`
+- manuscript-oriented PCA figures when PCA outputs exist
+- endpoint/battery figures when the necessary saved columns exist
+- `outputs/reporting/logs/07_reporting_manifest.csv`
+
+```{r setup, message=FALSE, warning=FALSE}
+set.seed(20260505)
+
+required_packages <- c(
+  "dplyr", "tidyr", "readr", "stringr", "purrr", "tibble",
+  "ggplot2", "rlang"
+)
+
+missing_packages <- required_packages[!vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Missing required packages: ",
+    paste(missing_packages, collapse = ", "),
+    ". Install them before rendering this notebook."
+  )
+}
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(purrr)
+library(tibble)
+library(ggplot2)
+library(rlang)
+```
+
+# 07.1 Project paths and reporting helpers
+
+```{r paths-and-helpers}
+find_project_root <- function(start = getwd()) {
+  current <- normalizePath(start, winslash = "/", mustWork = TRUE)
+
+  while (TRUE) {
+    has_rproj <- length(list.files(current, pattern = "\\.Rproj$", full.names = TRUE)) > 0
+    has_git <- dir.exists(file.path(current, ".git"))
+    has_data <- dir.exists(file.path(current, "data_processed")) || dir.exists(file.path(current, "data_raw"))
+
+    if (has_rproj || has_git || has_data) {
+      return(current)
+    }
+
+    parent <- dirname(current)
+    if (identical(parent, current)) {
+      return(normalizePath(start, winslash = "/", mustWork = TRUE))
+    }
+
+    current <- parent
+  }
+}
+
+project_root <- find_project_root()
+
+paths <- list(
+  root = project_root,
+  data_raw = file.path(project_root, "data_raw"),
+  data_processed = file.path(project_root, "data_processed"),
+  docs = file.path(project_root, "docs"),
+  notebooks = file.path(project_root, "notebooks"),
+  outputs = file.path(project_root, "outputs"),
+  output_tables = file.path(project_root, "outputs", "tables"),
+  output_figures = file.path(project_root, "outputs", "figures"),
+  output_logs = file.path(project_root, "outputs", "logs"),
+  output_models = file.path(project_root, "outputs", "models"),
+  reporting = file.path(project_root, "outputs", "reporting"),
+  reporting_tables = file.path(project_root, "outputs", "reporting", "tables"),
+  reporting_figures = file.path(project_root, "outputs", "reporting", "figures"),
+  reporting_logs = file.path(project_root, "outputs", "reporting", "logs")
+)
+
+purrr::walk(
+  paths[c("outputs", "reporting", "reporting_tables", "reporting_figures", "reporting_logs")],
+  dir.create,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+first_existing_path <- function(candidates) {
+  existing <- candidates[file.exists(candidates)]
+  if (length(existing) == 0) return(NA_character_)
+  existing[[1]]
+}
+
+read_optional_csv <- function(candidates, label) {
+  path <- first_existing_path(candidates)
+
+  if (is.na(path)) {
+    message("Missing optional input: ", label)
+    return(NULL)
+  }
+
+  message("Loaded ", label, ": ", path)
+  readr::read_csv(path, show_col_types = FALSE)
+}
+
+write_reporting_table <- function(x, filename) {
+  out <- file.path(paths$reporting_tables, filename)
+  readr::write_csv(x, out)
+  out
+}
+
+write_reporting_log <- function(x, filename) {
+  out <- file.path(paths$reporting_logs, filename)
+  readr::write_csv(x, out)
+  out
+}
+
+save_reporting_figure <- function(plot, filename, width = 8, height = 6, dpi = 300) {
+  out <- file.path(paths$reporting_figures, filename)
+  ggplot2::ggsave(out, plot = plot, width = width, height = height, dpi = dpi)
+  out
+}
+
+standardize_design <- function(df) {
+  out <- df
+
+  if ("treatment" %in% names(out)) {
+    out <- out %>%
+      mutate(
+        treatment = stringr::str_trim(as.character(treatment)),
+        treatment = dplyr::case_when(
+          treatment %in% c("0", "0.0", "control", "Control", "CTRL", "ctrl") ~ "0",
+          treatment %in% c("0.5", "0,5", "0.50", "0,50") ~ "0.5",
+          treatment %in% c("1", "1.0", "1.00") ~ "1",
+          TRUE ~ treatment
+        ),
+        treatment = factor(treatment, levels = c("0", "0.5", "1"))
+      )
+  }
+
+  if ("exposure" %in% names(out)) {
+    out <- out %>%
+      mutate(
+        exposure = stringr::str_to_lower(stringr::str_trim(as.character(exposure))),
+        exposure = stringr::str_replace_all(exposure, "\\s+", ""),
+        exposure = dplyr::case_when(
+          exposure %in% c("1", "1h", "01", "01h") ~ "1h",
+          exposure %in% c("24", "24h") ~ "24h",
+          exposure %in% c("96", "96h") ~ "96h",
+          TRUE ~ exposure
+        ),
+        exposure = factor(exposure, levels = c("1h", "24h", "96h"))
+      )
+  }
+
+  if ("battery" %in% names(out)) {
+    out <- out %>%
+      mutate(
+        battery = stringr::str_to_upper(stringr::str_trim(as.character(battery))),
+        battery = dplyr::case_when(
+          battery %in% c("1", "B1", "BATTERY1", "BATTERY_1", "SUITE1", "SUITE_1") ~ "BT1",
+          battery %in% c("2", "B2", "BATTERY2", "BATTERY_2", "SUITE2", "SUITE_2") ~ "BT2",
+          battery %in% c("3", "B3", "BATTERY3", "BATTERY_3", "SUITE3", "SUITE_3") ~ "BT3",
+          TRUE ~ battery
+        ),
+        battery = factor(battery, levels = c("BT1", "BT2", "BT3"))
+      )
+  }
+
+  out
+}
+
+coerce_numeric_if_possible <- function(x) {
+  if (is.numeric(x)) return(x)
+  suppressWarnings(as.numeric(x))
+}
+
+resolve_column <- function(df, candidates) {
+  if (is.null(df)) return(NA_character_)
+  if (length(candidates) == 0) return(NA_character_)
+
+  exact <- candidates[candidates %in% names(df)]
+  if (length(exact) > 0) return(exact[[1]])
+
+  lower_map <- tibble(actual = names(df), lower = stringr::str_to_lower(names(df)))
+  lower_candidates <- stringr::str_to_lower(candidates)
+  lower_match <- lower_map %>% filter(lower %in% lower_candidates)
+
+  if (nrow(lower_match) > 0) return(lower_match$actual[[1]])
+  NA_character_
+}
+
+has_all_cols <- function(df, cols) {
+  !is.null(df) && all(cols %in% names(df))
+}
+
+select_existing_cols <- function(df, preferred_cols) {
+  if (is.null(df)) return(tibble())
+  existing <- intersect(preferred_cols, names(df))
+  if (length(existing) == 0) return(df)
+  df %>% select(all_of(existing), everything())
+}
+
+add_manifest <- function(manifest, output_name, output_type, source, status, path = NA_character_, notes = "") {
+  bind_rows(
+    manifest,
+    tibble(
+      output_name = output_name,
+      output_type = output_type,
+      source = source,
+      status = status,
+      path = path,
+      notes = notes
+    )
+  )
+}
+
+empty_table <- function(message) {
+  tibble(status = "not_generated", details = message)
+}
+
+reporting_manifest <- tibble(
+  output_name = character(),
+  output_type = character(),
+  source = character(),
+  status = character(),
+  path = character(),
+  notes = character()
+)
+
+cat("Project root:", project_root, "\n")
+```
+
+# 07.2 Load completed outputs
+
+```{r load-completed-outputs}
+bt1 <- read_optional_csv(
+  c(
+    file.path(paths$data_processed, "bt1_audited.csv"),
+    file.path(paths$data_processed, "BT1_audited.csv"),
+    file.path(paths$data_processed, "battery_suite_1_audited.csv"),
+    file.path(paths$data_processed, "battery_suite_1.csv")
+  ),
+  "BT1 audited dataset"
+)
+
+bt2 <- read_optional_csv(
+  c(
+    file.path(paths$data_processed, "bt2_audited.csv"),
+    file.path(paths$data_processed, "BT2_audited.csv"),
+    file.path(paths$data_processed, "battery_suite_2_audited.csv"),
+    file.path(paths$data_processed, "battery_suite_2.csv")
+  ),
+  "BT2 audited dataset"
+)
+
+bt3 <- read_optional_csv(
+  c(
+    file.path(paths$data_processed, "bt3_audited.csv"),
+    file.path(paths$data_processed, "BT3_audited.csv"),
+    file.path(paths$data_processed, "battery_suite_3_audited.csv"),
+    file.path(paths$data_processed, "battery_suite_3.csv")
+  ),
+  "BT3 audited dataset"
+)
+
+bt1 <- if (!is.null(bt1)) standardize_design(bt1) else NULL
+bt2 <- if (!is.null(bt2)) standardize_design(bt2) else NULL
+bt3 <- if (!is.null(bt3)) standardize_design(bt3) else NULL
+
+dataset_inventory <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "06_dataset_inventory.csv"),
+    file.path(paths$output_tables, "01_dataset_inventory.csv"),
+    file.path(paths$output_logs, "01_dataset_inventory.csv")
+  ),
+  "dataset inventory"
+)
+
+cell_retention <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "06_treatment_exposure_retention.csv"),
+    file.path(paths$output_tables, "01_cell_size_table.csv"),
+    file.path(paths$output_logs, "01_cell_size_table.csv")
+  ),
+  "treatment-by-exposure retention"
+)
+
+endpoint_registry <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "02_endpoint_registry.csv"),
+    file.path(paths$output_tables, "00_endpoint_registry.csv"),
+    file.path(paths$output_logs, "02_endpoint_registry.csv"),
+    file.path(paths$output_logs, "00_endpoint_registry.csv")
+  ),
+  "endpoint registry"
+)
+
+descriptive_statistics <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "02_descriptive_statistics.csv"),
+    file.path(paths$output_tables, "02_descriptives.csv"),
+    file.path(paths$output_tables, "01_descriptive_statistics.csv")
+  ),
+  "descriptive statistics"
+)
+
+ethanol_models <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "03_ethanol_factorial_results.csv"),
+    file.path(paths$output_tables, "03_factorial_results.csv"),
+    file.path(paths$output_tables, "03_model_results.csv"),
+    file.path(paths$output_tables, "03_endpoint_model_results.csv")
+  ),
+  "ethanol endpoint model results"
+)
+
+ethanol_effects <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "03_ethanol_posthoc_contrasts.csv"),   # patch output
+    file.path(paths$output_tables, "03_ethanol_effect_estimates.csv"),     # original name
+    file.path(paths$output_tables, "03_effect_estimates.csv"),
+    file.path(paths$output_tables, "03_effect_sizes.csv"),
+    file.path(paths$output_tables, "03_posthoc_contrasts.csv")
+  ),
+  "ethanol effect estimates or contrasts"
+)
+
+battery_summary <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "04_battery_context_summary.csv"),
+    file.path(paths$output_tables, "04_battery_method_summary.csv"),
+    file.path(paths$output_tables, "04_battery_comparison_summary.csv"),
+    file.path(paths$output_tables, "04_battery_results.csv")
+  ),
+  "battery comparison summary"
+)
+
+battery_effects <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "04_battery_effect_sizes.csv"),
+    file.path(paths$output_tables, "04_battery_p_value_table.csv"),
+    file.path(paths$output_tables, "04_battery_cellwise_results.csv")
+  ),
+  "battery comparison effect estimates"
+)
+
+pca_variance <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "05_pca_variance_explained.csv"),
+    file.path(paths$output_tables, "05_pca_eigenvalues.csv"),
+    file.path(paths$output_tables, "06_pca_variance_explained.csv")
+  ),
+  "PCA variance explained"
+)
+
+pca_loadings <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "05_pca_loadings.csv"),
+    file.path(paths$output_tables, "05_pca_variable_loadings.csv"),
+    file.path(paths$output_tables, "06_pca_loadings_reconstructed.csv")
+  ),
+  "PCA loadings"
+)
+
+pca_scores <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "05_pca_scores.csv"),
+    file.path(paths$output_tables, "05_pca_individual_scores.csv"),
+    file.path(paths$output_tables, "06_pca_scores_reconstructed.csv")
+  ),
+  "PCA scores"
+)
+
+pca_labels <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "05_pca_component_labels_from_loadings.csv"),
+    file.path(paths$output_tables, "06_pca_component_labels_from_loadings.csv")
+  ),
+  "PCA component labels"
+)
+
+pca_variable_concordance <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "06_pca_variable_concordance.csv"),
+    file.path(paths$output_tables, "05_pca_variable_concordance.csv"),
+    file.path(paths$output_tables, "05_pca_variable_availability.csv")
+  ),
+  "PCA variable concordance"
+)
+
+condition_factor_audit <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "06_condition_factor_audit.csv"),
+    file.path(paths$output_logs, "06_condition_factor_audit.csv"),
+    file.path(paths$output_tables, "05_condition_factor_audit.csv")
+  ),
+  "condition factor audit"
+)
+
+robustness_decision_register <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "06_decision_register.csv"),
+    file.path(paths$output_logs, "06_decision_register.csv")
+  ),
+  "Notebook 06 decision register"
+)
+
+critical_flags <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "06_critical_flags.csv"),
+    file.path(paths$output_logs, "06_critical_flags.csv")
+  ),
+  "critical flags"
+)
+
+pca_bootstrap_summary <- read_optional_csv(
+  c(
+    file.path(paths$output_tables, "06_pca_bootstrap_component_summary.csv"),
+    file.path(paths$output_tables, "06_pca_bootstrap_top_loading_stability.csv")
+  ),
+  "PCA bootstrap stability summary"
+)
+```
+
+# 07.3 Table 01: dataset and QC summary
+
+```{r table-01-dataset-qc-summary}
+if (!is.null(dataset_inventory)) {
+  table_01 <- dataset_inventory
+} else {
+  dataset_row <- function(df, label) {
+    if (is.null(df)) {
+      return(tibble(dataset = label, rows = NA_integer_, columns = NA_integer_, unique_fish = NA_integer_))
+    }
+
+    tibble(
+      dataset = label,
+      rows = nrow(df),
+      columns = ncol(df),
+      unique_fish = if ("fish_id" %in% names(df)) dplyr::n_distinct(df$fish_id) else NA_integer_
+    )
+  }
+
+  table_01 <- bind_rows(
+    dataset_row(bt1, "BT1"),
+    dataset_row(bt2, "BT2"),
+    dataset_row(bt3, "BT3")
+  )
+}
+
+if (!is.null(cell_retention)) {
+  table_01_cells <- cell_retention
+} else if (!is.null(bt1) && has_all_cols(bt1, c("treatment", "exposure"))) {
+  table_01_cells <- bt1 %>%
+    group_by(treatment, exposure) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    mutate(dataset = "BT1")
+} else {
+  table_01_cells <- empty_table("No treatment-by-exposure cell table was available.")
+}
+
+path_table_01 <- write_reporting_table(table_01, "Table_01_dataset_qc_summary.csv")
+path_table_01_cells <- write_reporting_table(table_01_cells, "Table_01b_treatment_exposure_cells.csv")
+
+reporting_manifest <- add_manifest(reporting_manifest, "Table_01_dataset_qc_summary.csv", "table", "01/06 outputs", "generated", path_table_01)
+reporting_manifest <- add_manifest(reporting_manifest, "Table_01b_treatment_exposure_cells.csv", "table", "01/06 outputs", "generated", path_table_01_cells)
+
+table_01
+```
+
+# 07.4 Table 02: endpoint registry
+
+```{r table-02-endpoint-registry}
+if (!is.null(endpoint_registry)) {
+  registry_preferred_cols <- c(
+    "endpoint", "variable", "endpoint_variable", "domain", "source_test", "data_type",
+    "pca_included", "model_tested", "battery_comparable", "role", "notes"
+  )
+
+  table_02 <- select_existing_cols(endpoint_registry, registry_preferred_cols)
+  path_table_02 <- write_reporting_table(table_02, "Table_02_endpoint_registry.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_02_endpoint_registry.csv", "table", "Notebook 02", "generated", path_table_02)
+} else {
+  table_02 <- empty_table("Endpoint registry not found. Render Notebook 02 before generating final reporting tables.")
+  path_table_02 <- write_reporting_table(table_02, "Table_02_endpoint_registry.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_02_endpoint_registry.csv", "table", "Notebook 02", "placeholder", path_table_02)
+}
+
+table_02
+```
+
+# 07.5 Table 03: descriptive statistics
+
+If Notebook 02 already exported descriptives, this notebook formats that output. If it did not, this section computes descriptive summaries from available audited data and registry variables. This is reporting-level summarization, not a new inferential analysis.
+
+```{r table-03-descriptive-statistics}
+get_registry_endpoints <- function(registry) {
+  if (is.null(registry)) return(character())
+
+  endpoint_col <- resolve_column(registry, c("endpoint", "variable", "endpoint_variable"))
+  if (is.na(endpoint_col)) return(character())
+
+  unique(as.character(registry[[endpoint_col]]))
+}
+
+registry_endpoints <- get_registry_endpoints(endpoint_registry)
+
+if (!is.null(descriptive_statistics)) {
+  table_03 <- descriptive_statistics
+} else {
+  combined_data <- bind_rows(
+    if (!is.null(bt1)) mutate(bt1, dataset = "BT1") else NULL,
+    if (!is.null(bt2)) mutate(bt2, dataset = "BT2") else NULL,
+    if (!is.null(bt3)) mutate(bt3, dataset = "BT3") else NULL
+  )
+
+  candidate_vars <- intersect(registry_endpoints, names(combined_data))
+
+  # Keep only numeric or numeric-coercible endpoints.
+  # The registry may contain design variables such as battery, treatment, or exposure;
+  # these must not be pivoted as endpoint values.
+  candidate_vars <- candidate_vars[vapply(candidate_vars, function(v) {
+    x <- coerce_numeric_if_possible(combined_data[[v]])
+    sum(!is.na(x)) > 0 && length(unique(x[!is.na(x)])) > 1
+  }, logical(1))]
+
+  candidate_vars <- setdiff(
+    candidate_vars,
+    c("fish_id", "battery", "treatment", "exposure", "datetime", "date", "time", "dataset")
+  )
+
+  if (length(candidate_vars) == 0 && !is.null(combined_data)) {
+    candidate_vars <- names(combined_data)[vapply(names(combined_data), function(v) {
+      x <- coerce_numeric_if_possible(combined_data[[v]])
+      sum(!is.na(x)) > 0 && length(unique(x[!is.na(x)])) > 1
+    }, logical(1))]
+
+    candidate_vars <- setdiff(
+      candidate_vars,
+      c("fish_id", "battery", "treatment", "exposure", "datetime", "date", "time", "dataset")
+    )
+  }
+
+  if (!is.null(combined_data) && length(candidate_vars) > 0 && all(c("dataset", "treatment", "exposure") %in% names(combined_data))) {
+    table_03 <- combined_data %>%
+      select(any_of(c("dataset", "battery", "treatment", "exposure", candidate_vars))) %>%
+      mutate(across(all_of(candidate_vars), coerce_numeric_if_possible)) %>%
+      pivot_longer(
+        cols = all_of(candidate_vars),
+        names_to = "endpoint",
+        values_to = "value"
+      ) %>%
+      group_by(dataset, treatment, exposure, endpoint) %>%
+      summarise(
+        n = sum(!is.na(value)),
+        mean = mean(value, na.rm = TRUE),
+        sd = sd(value, na.rm = TRUE),
+        median = median(value, na.rm = TRUE),
+        q1 = quantile(value, 0.25, na.rm = TRUE, names = FALSE),
+        q3 = quantile(value, 0.75, na.rm = TRUE, names = FALSE),
+        min = min(value, na.rm = TRUE),
+        max = max(value, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      mutate(across(c(mean, sd, median, q1, q3, min, max), ~ ifelse(is.finite(.x), .x, NA_real_)))
+  } else {
+    table_03 <- empty_table("Descriptive statistics could not be generated from available inputs.")
+  }
+}
+
+path_table_03 <- write_reporting_table(table_03, "Table_03_descriptive_statistics.csv")
+reporting_manifest <- add_manifest(reporting_manifest, "Table_03_descriptive_statistics.csv", "table", "Notebook 02 or audited data", "generated", path_table_03)
+
+table_03 %>% head(30)
+```
+
+# 07.6 Table 04: endpoint-level ethanol models
+
+This table reports saved endpoint-level ethanol model outputs. It does not rerun models.
+
+```{r table-04-ethanol-models}
+if (!is.null(ethanol_models)) {
+  ethanol_preferred_cols <- c(
+    "endpoint", "domain", "term", "effect", "estimate", "std.error", "statistic",
+    "df", "p.value", "p_value", "p_adj", "p_adjusted", "q_value",
+    "model_family", "interpretation", "decision", "notes"
+  )
+
+  table_04 <- select_existing_cols(ethanol_models, ethanol_preferred_cols)
+  path_table_04 <- write_reporting_table(table_04, "Table_04_ethanol_endpoint_models.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_04_ethanol_endpoint_models.csv", "table", "Notebook 03", "generated", path_table_04)
+} else {
+  table_04 <- empty_table("Notebook 03 model-result table not found.")
+  path_table_04 <- write_reporting_table(table_04, "Table_04_ethanol_endpoint_models.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_04_ethanol_endpoint_models.csv", "table", "Notebook 03", "placeholder", path_table_04)
+}
+
+if (!is.null(ethanol_effects)) {
+  table_04b <- ethanol_effects
+  path_table_04b <- write_reporting_table(table_04b, "Table_04b_ethanol_effect_estimates_or_contrasts.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_04b_ethanol_effect_estimates_or_contrasts.csv", "table", "Notebook 03", "generated", path_table_04b)
+}
+
+table_04
+```
+
+# 07.7 Table 05: battery-context comparison summary
+
+This table reports saved battery-context outputs. It does not reinterpret inconclusive comparisons as absence of difference.
+
+```{r table-05-battery-context-summary}
+if (!is.null(battery_summary)) {
+  battery_preferred_cols <- c(
+    "endpoint", "domain", "comparison", "battery_pair", "battery_a", "battery_b",
+    "treatment", "exposure", "estimate", "difference", "effect_size",
+    "conf.low", "conf.high", "p.value", "p_value", "p_adj", "classification",
+    "decision", "interpretation", "notes"
+  )
+
+  table_05 <- select_existing_cols(battery_summary, battery_preferred_cols)
+  path_table_05 <- write_reporting_table(table_05, "Table_05_battery_context_summary.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_05_battery_context_summary.csv", "table", "Notebook 04", "generated", path_table_05)
+} else if (!is.null(battery_effects)) {
+  table_05 <- battery_effects
+  path_table_05 <- write_reporting_table(table_05, "Table_05_battery_context_summary.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_05_battery_context_summary.csv", "table", "Notebook 04", "generated_from_effect_table", path_table_05)
+} else {
+  table_05 <- empty_table("Notebook 04 battery-context table not found.")
+  path_table_05 <- write_reporting_table(table_05, "Table_05_battery_context_summary.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_05_battery_context_summary.csv", "table", "Notebook 04", "placeholder", path_table_05)
+}
+
+table_05
+```
+
+# 07.8 Table 06: PCA reporting summary
+
+This table combines PCA variance, variable availability, loading-based labels, and top loadings where available.
+
+```{r table-06-pca-summary}
+top_loadings_table <- NULL
+
+if (!is.null(pca_loadings)) {
+  variable_col <- resolve_column(pca_loadings, c("variable", "endpoint", "pca_variable"))
+  component_col <- resolve_column(pca_loadings, c("component", "PC", "pc"))
+  loading_col <- resolve_column(pca_loadings, c("loading", "charge", "coefficient", "value", "rotation"))
+
+  if (!is.na(variable_col) && !is.na(component_col) && !is.na(loading_col)) {
+    top_loadings_table <- pca_loadings %>%
+      transmute(
+        component = as.character(.data[[component_col]]),
+        variable = as.character(.data[[variable_col]]),
+        loading = as.numeric(.data[[loading_col]]),
+        abs_loading = abs(loading)
+      ) %>%
+      group_by(component) %>%
+      arrange(desc(abs_loading), .by_group = TRUE) %>%
+      mutate(loading_rank = row_number()) %>%
+      filter(loading_rank <= 5) %>%
+      ungroup()
+  }
+}
+
+pca_summary_parts <- list()
+
+if (!is.null(pca_variance)) {
+  pca_summary_parts$variance <- pca_variance %>%
+    mutate(section = "variance_explained")
+}
+
+if (!is.null(pca_labels)) {
+  pca_summary_parts$labels <- pca_labels %>%
+    mutate(section = "loading_based_component_labels")
+}
+
+if (!is.null(pca_variable_concordance)) {
+  pca_summary_parts$variables <- pca_variable_concordance %>%
+    mutate(section = "pca_variable_concordance")
+}
+
+if (!is.null(condition_factor_audit)) {
+  pca_summary_parts$condition_factor <- condition_factor_audit %>%
+    mutate(section = "condition_factor_audit")
+}
+
+if (length(pca_summary_parts) > 0) {
+  table_06 <- bind_rows(lapply(pca_summary_parts, function(x) mutate_all(x, as.character)))
+} else {
+  table_06 <- empty_table("No PCA summary outputs found.")
+}
+
+path_table_06 <- write_reporting_table(table_06, "Table_06_pca_summary.csv")
+reporting_manifest <- add_manifest(reporting_manifest, "Table_06_pca_summary.csv", "table", "Notebook 05/06", "generated", path_table_06)
+
+if (!is.null(top_loadings_table)) {
+  path_table_06b <- write_reporting_table(top_loadings_table, "Table_06b_pca_top_loadings.csv")
+  reporting_manifest <- add_manifest(reporting_manifest, "Table_06b_pca_top_loadings.csv", "table", "Notebook 05/06", "generated", path_table_06b)
+}
+
+table_06 %>% head(30)
+```
+
+# 07.9 Table 07: robustness summary
+
+```{r table-07-robustness-summary}
+robustness_parts <- list()
+
+if (!is.null(robustness_decision_register)) {
+  robustness_parts$decision_register <- robustness_decision_register %>%
+    mutate(section = "decision_register")
+}
+
+if (!is.null(critical_flags)) {
+  robustness_parts$critical_flags <- critical_flags %>%
+    mutate(section = "critical_flags")
+}
+
+if (!is.null(pca_bootstrap_summary)) {
+  robustness_parts$pca_bootstrap <- pca_bootstrap_summary %>%
+    mutate(section = "pca_bootstrap_stability")
+}
+
+if (!is.null(condition_factor_audit)) {
+  robustness_parts$condition_factor <- condition_factor_audit %>%
+    mutate(section = "condition_factor")
+}
+
+if (length(robustness_parts) > 0) {
+  table_07 <- bind_rows(lapply(robustness_parts, function(x) mutate_all(x, as.character)))
+} else {
+  table_07 <- empty_table("Notebook 06 robustness outputs not found.")
+}
+
+path_table_07 <- write_reporting_table(table_07, "Table_07_robustness_summary.csv")
+reporting_manifest <- add_manifest(reporting_manifest, "Table_07_robustness_summary.csv", "table", "Notebook 06", "generated", path_table_07)
+
+table_07 %>% head(40)
+```
+
+# 07.10 Figure 01: endpoint profile overview
+
+This figure is generated from audited data and registry endpoints when available. It is descriptive.
+
+```{r figure-01-endpoint-profile, fig.width=11, fig.height=8}
+endpoint_candidates <- registry_endpoints
+
+if (length(endpoint_candidates) == 0) {
+  endpoint_candidates <- c(
+    "dist_total", "mov_total", "vel_mean", "stratum_pref",
+    "time_bright", "first_choice_binary", "latency", "mtpc", "num_changes",
+    "resistance_index", "attempts", "blood_sugar", "condition_factor"
+  )
+}
+
+if (!is.null(bt1) && has_all_cols(bt1, c("treatment", "exposure"))) {
+  plot_vars <- intersect(endpoint_candidates, names(bt1))
+
+  # Keep only numeric or numeric-coercible endpoint variables.
+  # Design/time variables may appear in the registry but must not enter endpoint profile plots.
+  plot_vars <- setdiff(
+    plot_vars,
+    c("fish_id", "battery", "treatment", "exposure", "datetime", "date", "time", "dataset")
+  )
+
+  plot_vars <- plot_vars[vapply(plot_vars, function(v) {
+    x_num <- coerce_numeric_if_possible(bt1[[v]])
+    sum(!is.na(x_num)) > 0 && length(unique(x_num[!is.na(x_num)])) > 1
+  }, logical(1))]
+
+  plot_vars <- plot_vars[seq_len(min(length(plot_vars), 12))]
+
+  if (length(plot_vars) > 0) {
+    endpoint_profile_data <- bt1 %>%
+      select(treatment, exposure, all_of(plot_vars)) %>%
+      mutate(across(all_of(plot_vars), coerce_numeric_if_possible)) %>%
+      pivot_longer(
+        cols = all_of(plot_vars),
+        names_to = "endpoint",
+        values_to = "value"
+      )
+
+    figure_01 <- ggplot(endpoint_profile_data, aes(x = exposure, y = value)) +
+      geom_boxplot(outlier.alpha = 0.3) +
+      geom_point(position = position_jitter(width = 0.12, height = 0), alpha = 0.35, size = 1) +
+      facet_grid(endpoint ~ treatment, scales = "free_y") +
+      labs(
+        title = "BT1 endpoint profiles by treatment and exposure",
+        subtitle = "Descriptive distributions from audited BT1 data",
+        x = "Exposure",
+        y = "Endpoint value"
+      ) +
+      theme_minimal()
+
+    path_figure_01 <- save_reporting_figure(figure_01, "Figure_01_BT1_endpoint_profiles.png", width = 11, height = 8)
+    reporting_manifest <- add_manifest(reporting_manifest, "Figure_01_BT1_endpoint_profiles.png", "figure", "Audited BT1 data", "generated", path_figure_01)
+
+    figure_01
+  } else {
+    reporting_manifest <- add_manifest(reporting_manifest, "Figure_01_BT1_endpoint_profiles.png", "figure", "Audited BT1 data", "skipped", notes = "No numeric endpoint variables available.")
+  }
+} else {
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_01_BT1_endpoint_profiles.png", "figure", "Audited BT1 data", "skipped", notes = "BT1 or treatment/exposure columns unavailable.")
+}
+```
+
+# 07.11 Figure 02: ethanol model result overview
+
+This figure is generated only when Notebook 03 model outputs contain recognizable term and p-value columns.
+
+```{r figure-02-ethanol-overview, fig.width=9, fig.height=6}
+if (!is.null(ethanol_models)) {
+  endpoint_col <- resolve_column(ethanol_models, c("endpoint", "variable", "endpoint_variable"))
+  term_col <- resolve_column(ethanol_models, c("term", "effect", "model_term"))
+  p_col <- resolve_column(ethanol_models, c("p_adj", "p_adjusted", "q_value", "p.value", "p_value"))
+
+  if (!is.na(endpoint_col) && !is.na(term_col) && !is.na(p_col)) {
+    ethanol_plot_data <- ethanol_models %>%
+      transmute(
+        endpoint = as.character(.data[[endpoint_col]]),
+        term = as.character(.data[[term_col]]),
+        p_value = as.numeric(.data[[p_col]])
+      ) %>%
+      filter(!is.na(p_value), p_value > 0) %>%
+      mutate(
+        neg_log10_p = -log10(p_value),
+        endpoint = factor(endpoint, levels = unique(endpoint))
+      )
+
+    if (nrow(ethanol_plot_data) > 0) {
+      figure_02 <- ggplot(ethanol_plot_data, aes(x = term, y = endpoint, fill = neg_log10_p)) +
+        geom_tile() +
+        labs(
+          title = "Endpoint-level ethanol model overview",
+          subtitle = "Heatmap of -log10 p-values from saved Notebook 03 outputs",
+          x = "Model term",
+          y = "Endpoint",
+          fill = "-log10(p)"
+        ) +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+      path_figure_02 <- save_reporting_figure(figure_02, "Figure_02_ethanol_model_overview.png", width = 9, height = 6)
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_02_ethanol_model_overview.png", "figure", "Notebook 03", "generated", path_figure_02)
+
+      figure_02
+    } else {
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_02_ethanol_model_overview.png", "figure", "Notebook 03", "skipped", notes = "No positive numeric p-values available.")
+    }
+  } else {
+    reporting_manifest <- add_manifest(reporting_manifest, "Figure_02_ethanol_model_overview.png", "figure", "Notebook 03", "skipped", notes = "Could not resolve endpoint, term, and p-value columns.")
+  }
+} else {
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_02_ethanol_model_overview.png", "figure", "Notebook 03", "skipped", notes = "Notebook 03 model table unavailable.")
+}
+```
+
+# 07.12 Figure 03: battery-context classification overview
+
+```{r figure-03-battery-context, fig.width=8, fig.height=5}
+if (!is.null(table_05) && !"not_generated" %in% table_05$status[1]) {
+  classification_col <- resolve_column(table_05, c("classification", "decision", "interpretation", "status"))
+  endpoint_col <- resolve_column(table_05, c("endpoint", "variable", "endpoint_variable"))
+
+  if (!is.na(classification_col) && !is.na(endpoint_col)) {
+    battery_classification_plot <- table_05 %>%
+      transmute(
+        endpoint = as.character(.data[[endpoint_col]]),
+        classification = as.character(.data[[classification_col]])
+      ) %>%
+      filter(!is.na(endpoint), !is.na(classification)) %>%
+      count(endpoint, classification)
+
+    if (nrow(battery_classification_plot) > 0) {
+      figure_03 <- ggplot(battery_classification_plot, aes(x = endpoint, y = n, fill = classification)) +
+        geom_col(position = "stack") +
+        labs(
+          title = "Battery-context comparison classifications",
+          subtitle = "Counts by endpoint from saved Notebook 04 outputs",
+          x = "Endpoint",
+          y = "Number of comparisons",
+          fill = "Classification"
+        ) +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+      path_figure_03 <- save_reporting_figure(figure_03, "Figure_03_battery_context_classifications.png", width = 8, height = 5)
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_03_battery_context_classifications.png", "figure", "Notebook 04", "generated", path_figure_03)
+
+      figure_03
+    } else {
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_03_battery_context_classifications.png", "figure", "Notebook 04", "skipped", notes = "No classification rows available.")
+    }
+  } else {
+    reporting_manifest <- add_manifest(reporting_manifest, "Figure_03_battery_context_classifications.png", "figure", "Notebook 04", "skipped", notes = "Could not resolve endpoint and classification columns.")
+  }
+} else {
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_03_battery_context_classifications.png", "figure", "Notebook 04", "skipped", notes = "Battery-context table unavailable.")
+}
+```
+
+# 07.13 Figure 04: PCA variance explained
+
+```{r figure-04-pca-variance, fig.width=8, fig.height=5}
+if (!is.null(pca_variance)) {
+  component_col <- resolve_column(pca_variance, c("component", "PC", "pc"))
+  variance_col <- resolve_column(pca_variance, c("variance_explained", "prop_variance", "proportion", "variance"))
+
+  if (!is.na(component_col) && !is.na(variance_col)) {
+    pca_variance_plot <- pca_variance %>%
+      transmute(
+        component = as.character(.data[[component_col]]),
+        variance_explained = as.numeric(.data[[variance_col]])
+      ) %>%
+      filter(!is.na(variance_explained)) %>%
+      mutate(
+        variance_explained_pct = ifelse(variance_explained <= 1, variance_explained * 100, variance_explained),
+        component = factor(component, levels = unique(component))
+      )
+
+    if (nrow(pca_variance_plot) > 0) {
+      figure_04 <- ggplot(pca_variance_plot, aes(x = component, y = variance_explained_pct)) +
+        geom_col() +
+        labs(
+          title = "BT1 full-battery PCA variance explained",
+          subtitle = "Single PCA; variables z-transformed before analysis",
+          x = "Principal component",
+          y = "Variance explained (%)"
+        ) +
+        theme_minimal()
+
+      path_figure_04 <- save_reporting_figure(figure_04, "Figure_04_PCA_variance_explained.png", width = 8, height = 5)
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_04_PCA_variance_explained.png", "figure", "Notebook 05/06", "generated", path_figure_04)
+
+      figure_04
+    } else {
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_04_PCA_variance_explained.png", "figure", "Notebook 05/06", "skipped", notes = "No numeric variance-explained values.")
+    }
+  } else {
+    reporting_manifest <- add_manifest(reporting_manifest, "Figure_04_PCA_variance_explained.png", "figure", "Notebook 05/06", "skipped", notes = "Could not resolve component and variance columns.")
+  }
+} else {
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_04_PCA_variance_explained.png", "figure", "Notebook 05/06", "skipped", notes = "PCA variance table unavailable.")
+}
+```
+
+# 07.14 Figure 05: PCA score plot
+
+```{r figure-05-pca-score-plot, fig.width=8, fig.height=6}
+if (!is.null(pca_scores) && all(c("PC1", "PC2") %in% names(pca_scores))) {
+  if (all(c("treatment", "exposure") %in% names(pca_scores))) {
+    figure_05 <- ggplot(pca_scores, aes(x = PC1, y = PC2, color = treatment, shape = exposure)) +
+      geom_point(alpha = 0.65, size = 2) +
+      geom_hline(yintercept = 0, linewidth = 0.3) +
+      geom_vline(xintercept = 0, linewidth = 0.3) +
+      labs(
+        title = "BT1 full-battery PCA score space",
+        subtitle = "Exploratory visualization of z-transformed endpoint structure",
+        x = "PC1",
+        y = "PC2"
+      ) +
+      theme_minimal()
+  } else {
+    figure_05 <- ggplot(pca_scores, aes(x = PC1, y = PC2)) +
+      geom_point(alpha = 0.65, size = 2) +
+      geom_hline(yintercept = 0, linewidth = 0.3) +
+      geom_vline(xintercept = 0, linewidth = 0.3) +
+      labs(
+        title = "BT1 full-battery PCA score space",
+        subtitle = "Exploratory visualization of z-transformed endpoint structure",
+        x = "PC1",
+        y = "PC2"
+      ) +
+      theme_minimal()
+  }
+
+  path_figure_05 <- save_reporting_figure(figure_05, "Figure_05_PCA_score_space_PC1_PC2.png", width = 8, height = 6)
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_05_PCA_score_space_PC1_PC2.png", "figure", "Notebook 05/06", "generated", path_figure_05)
+
+  figure_05
+} else {
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_05_PCA_score_space_PC1_PC2.png", "figure", "Notebook 05/06", "skipped", notes = "PCA scores with PC1 and PC2 unavailable.")
+}
+```
+
+# 07.15 Figure 06: PCA loading plot
+
+```{r figure-06-pca-loading-plot, fig.width=8, fig.height=6}
+if (!is.null(pca_loadings)) {
+  variable_col <- resolve_column(pca_loadings, c("variable", "endpoint", "pca_variable"))
+  component_col <- resolve_column(pca_loadings, c("component", "PC", "pc"))
+  loading_col <- resolve_column(pca_loadings, c("loading", "charge", "coefficient", "value", "rotation"))
+
+  if (!is.na(variable_col) && !is.na(component_col) && !is.na(loading_col)) {
+    loading_wide <- pca_loadings %>%
+      transmute(
+        variable = as.character(.data[[variable_col]]),
+        component = as.character(.data[[component_col]]),
+        loading = as.numeric(.data[[loading_col]])
+      ) %>%
+      filter(component %in% c("PC1", "PC2")) %>%
+      pivot_wider(names_from = component, values_from = loading)
+
+    if (all(c("PC1", "PC2") %in% names(loading_wide)) && nrow(loading_wide) > 0) {
+      figure_06 <- ggplot(loading_wide, aes(x = PC1, y = PC2, label = variable)) +
+        geom_hline(yintercept = 0, linewidth = 0.3) +
+        geom_vline(xintercept = 0, linewidth = 0.3) +
+        geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), arrow = arrow(length = unit(0.15, "cm")), alpha = 0.7) +
+        geom_text(size = 3, vjust = -0.4) +
+        labs(
+          title = "BT1 full-battery PCA loadings",
+          subtitle = "Component interpretation must follow dominant loadings",
+          x = "PC1 loading",
+          y = "PC2 loading"
+        ) +
+        theme_minimal()
+
+      path_figure_06 <- save_reporting_figure(figure_06, "Figure_06_PCA_loadings_PC1_PC2.png", width = 8, height = 6)
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_06_PCA_loadings_PC1_PC2.png", "figure", "Notebook 05/06", "generated", path_figure_06)
+
+      figure_06
+    } else {
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_06_PCA_loadings_PC1_PC2.png", "figure", "Notebook 05/06", "skipped", notes = "Could not create PC1-PC2 loading-wide table.")
+    }
+  } else {
+    reporting_manifest <- add_manifest(reporting_manifest, "Figure_06_PCA_loadings_PC1_PC2.png", "figure", "Notebook 05/06", "skipped", notes = "Could not resolve PCA loading columns.")
+  }
+} else {
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_06_PCA_loadings_PC1_PC2.png", "figure", "Notebook 05/06", "skipped", notes = "PCA loadings unavailable.")
+}
+```
+
+# 07.16 Figure 07: PCA biplot
+
+This biplot combines PCA scores and loadings using saved Notebook 05/06 outputs. It is a visualization of multivariate structure.
+
+```{r figure-07-pca-biplot, fig.width=9, fig.height=7}
+if (!is.null(pca_scores) && !is.null(pca_loadings) && all(c("PC1", "PC2") %in% names(pca_scores))) {
+  variable_col <- resolve_column(pca_loadings, c("variable", "endpoint", "pca_variable"))
+  component_col <- resolve_column(pca_loadings, c("component", "PC", "pc"))
+  loading_col <- resolve_column(pca_loadings, c("loading", "charge", "coefficient", "value", "rotation"))
+
+  if (!is.na(variable_col) && !is.na(component_col) && !is.na(loading_col)) {
+    loading_wide <- pca_loadings %>%
+      transmute(
+        variable = as.character(.data[[variable_col]]),
+        component = as.character(.data[[component_col]]),
+        loading = as.numeric(.data[[loading_col]])
+      ) %>%
+      filter(component %in% c("PC1", "PC2")) %>%
+      pivot_wider(names_from = component, values_from = loading)
+
+    if (all(c("PC1", "PC2") %in% names(loading_wide)) && nrow(loading_wide) > 0) {
+      score_range <- max(
+        abs(pca_scores$PC1),
+        abs(pca_scores$PC2),
+        na.rm = TRUE
+      )
+
+      loading_range <- max(
+        abs(loading_wide$PC1),
+        abs(loading_wide$PC2),
+        na.rm = TRUE
+      )
+
+      arrow_multiplier <- ifelse(is.finite(score_range) && is.finite(loading_range) && loading_range > 0, score_range / loading_range * 0.75, 1)
+
+      loading_plot_data <- loading_wide %>%
+        mutate(
+          PC1_plot = PC1 * arrow_multiplier,
+          PC2_plot = PC2 * arrow_multiplier
+        )
+
+      if (all(c("treatment", "exposure") %in% names(pca_scores))) {
+        figure_07 <- ggplot(pca_scores, aes(x = PC1, y = PC2, color = treatment, shape = exposure)) +
+          geom_point(alpha = 0.55, size = 2) +
+          geom_hline(yintercept = 0, linewidth = 0.3) +
+          geom_vline(xintercept = 0, linewidth = 0.3) +
+          geom_segment(
+            data = loading_plot_data,
+            aes(x = 0, y = 0, xend = PC1_plot, yend = PC2_plot),
+            inherit.aes = FALSE,
+            arrow = arrow(length = unit(0.15, "cm")),
+            alpha = 0.75
+          ) +
+          geom_text(
+            data = loading_plot_data,
+            aes(x = PC1_plot, y = PC2_plot, label = variable),
+            inherit.aes = FALSE,
+            size = 3,
+            vjust = -0.4
+          ) +
+          labs(
+            title = "BT1 full-battery PCA biplot",
+            subtitle = "Scores and loadings from one z-transformed PCA",
+            x = "PC1 score",
+            y = "PC2 score"
+          ) +
+          theme_minimal()
+      } else {
+        figure_07 <- ggplot(pca_scores, aes(x = PC1, y = PC2)) +
+          geom_point(alpha = 0.55, size = 2) +
+          geom_hline(yintercept = 0, linewidth = 0.3) +
+          geom_vline(xintercept = 0, linewidth = 0.3) +
+          geom_segment(
+            data = loading_plot_data,
+            aes(x = 0, y = 0, xend = PC1_plot, yend = PC2_plot),
+            inherit.aes = FALSE,
+            arrow = arrow(length = unit(0.15, "cm")),
+            alpha = 0.75
+          ) +
+          geom_text(
+            data = loading_plot_data,
+            aes(x = PC1_plot, y = PC2_plot, label = variable),
+            inherit.aes = FALSE,
+            size = 3,
+            vjust = -0.4
+          ) +
+          labs(
+            title = "BT1 full-battery PCA biplot",
+            subtitle = "Scores and loadings from one z-transformed PCA",
+            x = "PC1 score",
+            y = "PC2 score"
+          ) +
+          theme_minimal()
+      }
+
+      path_figure_07 <- save_reporting_figure(figure_07, "Figure_07_PCA_biplot_PC1_PC2.png", width = 9, height = 7)
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_07_PCA_biplot_PC1_PC2.png", "figure", "Notebook 05/06", "generated", path_figure_07)
+
+      figure_07
+    } else {
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_07_PCA_biplot_PC1_PC2.png", "figure", "Notebook 05/06", "skipped", notes = "Could not create loading-wide table for biplot.")
+    }
+  } else {
+    reporting_manifest <- add_manifest(reporting_manifest, "Figure_07_PCA_biplot_PC1_PC2.png", "figure", "Notebook 05/06", "skipped", notes = "Could not resolve PCA loading columns.")
+  }
+} else {
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_07_PCA_biplot_PC1_PC2.png", "figure", "Notebook 05/06", "skipped", notes = "PCA scores/loadings unavailable.")
+}
+```
+
+# 07.17 Figure 08: robustness status overview
+
+```{r figure-08-robustness-status, fig.width=8, fig.height=5}
+if (!is.null(table_07) && !"not_generated" %in% table_07$status[1]) {
+  status_col <- resolve_column(table_07, c("status", "audit_status", "decision", "classification"))
+
+  if (!is.na(status_col)) {
+    robustness_plot_data <- table_07 %>%
+      transmute(status = as.character(.data[[status_col]])) %>%
+      filter(!is.na(status), status != "") %>%
+      count(status)
+
+    if (nrow(robustness_plot_data) > 0) {
+      figure_08 <- ggplot(robustness_plot_data, aes(x = status, y = n)) +
+        geom_col() +
+        labs(
+          title = "Robustness and concordance status overview",
+          subtitle = "Summary counts from Notebook 06 outputs",
+          x = "Status",
+          y = "Count"
+        ) +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+      path_figure_08 <- save_reporting_figure(figure_08, "Figure_08_robustness_status_overview.png", width = 8, height = 5)
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_08_robustness_status_overview.png", "figure", "Notebook 06", "generated", path_figure_08)
+
+      figure_08
+    } else {
+      reporting_manifest <- add_manifest(reporting_manifest, "Figure_08_robustness_status_overview.png", "figure", "Notebook 06", "skipped", notes = "No robustness status rows available.")
+    }
+  } else {
+    reporting_manifest <- add_manifest(reporting_manifest, "Figure_08_robustness_status_overview.png", "figure", "Notebook 06", "skipped", notes = "No status-like column resolved.")
+  }
+} else {
+  reporting_manifest <- add_manifest(reporting_manifest, "Figure_08_robustness_status_overview.png", "figure", "Notebook 06", "skipped", notes = "Robustness summary unavailable.")
+}
+```
+
+# 07.18 Reporting manifest
+
+```{r reporting-manifest}
+reporting_manifest <- reporting_manifest %>%
+  mutate(
+    output_name = as.character(output_name),
+    output_type = as.character(output_type),
+    source = as.character(source),
+    status = as.character(status),
+    path = as.character(path),
+    notes = as.character(notes)
+  )
+
+path_manifest <- write_reporting_log(reporting_manifest, "07_reporting_manifest.csv")
+
+reporting_manifest
+```
+
+# 07.19 Reporting bundle index
+
+```{r reporting-bundle-index}
+reporting_bundle_index <- tibble(
+  file = list.files(paths$reporting, recursive = TRUE, full.names = FALSE),
+  full_path = list.files(paths$reporting, recursive = TRUE, full.names = TRUE),
+  file_type = case_when(
+    str_detect(file, "\\.csv$") ~ "csv",
+    str_detect(file, "\\.png$") ~ "png",
+    str_detect(file, "\\.pdf$") ~ "pdf",
+    TRUE ~ "other"
+  )
+)
+
+path_index <- write_reporting_log(reporting_bundle_index, "07_reporting_bundle_index.csv")
+
+reporting_bundle_index
+```
+
+# Completion statement
+
+Notebook 07 is complete when the reporting manifest exists and every generated table or figure is traceable to outputs from notebooks 00W-06.
+
+If an output is skipped, the manifest records the reason. Skipped outputs are acceptable when the upstream notebook has not yet generated the required table or when the output is not supported by the available columns.
+
+Notebook 07 must not be used to introduce new inferential decisions. If a missing output is scientifically necessary, rerender or patch the relevant upstream notebook, then rerender this notebook.

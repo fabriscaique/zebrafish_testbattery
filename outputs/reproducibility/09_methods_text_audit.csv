@@ -1,0 +1,13 @@
+check_type,item,status,details
+methods_file_presence,08_statistical_methods_draft.md,present,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reporting/text/08_statistical_methods_draft.md
+methods_file_presence,08_methods_data_preparation.md,present,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reporting/text/08_methods_data_preparation.md
+methods_file_presence,08_methods_endpoint_registry.md,present,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reporting/text/08_methods_endpoint_registry.md
+methods_file_presence,08_methods_endpoint_models.md,present,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reporting/text/08_methods_endpoint_models.md
+methods_file_presence,08_methods_battery_context.md,present,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reporting/text/08_methods_battery_context.md
+methods_file_presence,08_methods_pca.md,present,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reporting/text/08_methods_pca.md
+methods_file_presence,08_methods_robustness.md,present,C:/Users/caiqu/OneDrive/Documents/Masters/zebrafish_testbattery_repo_ClaudeCopy/outputs/reporting/text/08_methods_robustness.md
+methods_wording,thesis-style language,pass,count=0; examples=NA; 
+methods_wording,primary/secondary endpoint hierarchy,review,"count=4; examples=primary | secondary; Review manually: 'primary' may appear in phrases such as primary inference boundary, but endpoint hierarchy wording should be avoided."
+methods_wording,PCA as proof,pass,count=0; examples=NA; 
+methods_wording,forced PC labels,flag,count=3; examples=PC1 = | PC2 = | PC3 =; 
+methods_wording,no-difference wording,pass,count=0; examples=NA; 

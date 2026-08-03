@@ -1,0 +1,6 @@
+"source_test","dataset_a","dataset_b","comparison","comparison_rationale"
+"LDT","BT1","BT2","BT1_vs_BT2","LDT endpoints are available in BT1 and the alternative LDT+NTT context."
+"NTT","BT1","BT2","BT1_vs_BT2","NTT endpoints are available in BT1 and the alternative LDT+NTT context."
+"RN","BT1","BT3","BT1_vs_BT3","Endurance endpoints are available in BT1 and the isolated endurance context."
+"endurance","BT1","BT3","BT1_vs_BT3","Endurance endpoints are available in BT1 and the isolated endurance context."
+"Endurance","BT1","BT3","BT1_vs_BT3","Endurance endpoints are available in BT1 and the isolated endurance context."

@@ -1,0 +1,2 @@
+step,action,variables,n_variables,n_complete_rows,note
+1,initial_selection,"dist_total, mov_total, vel_mean, stratum_pref, time_bright, first_choice_binary, latency, mtpc, num_changes, resistance_index, attempts, blood_sugar, condition_factor",13,110,All eligible fixed endpoints plus eligible conditional supportive variables.
